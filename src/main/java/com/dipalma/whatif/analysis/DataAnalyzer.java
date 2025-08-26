@@ -54,7 +54,6 @@ public class DataAnalyzer {
         // rankedAttributes() returns features from best to worst.
         double[][] rankedAttributes = selector.rankedAttributes();
         System.out.println("Rank | Score   | Feature");
-        System.out.println("------------------------------------");
 
         // *** THE FIX IS HERE ***
         // We use a simple counter variable for the rank instead of calling a non-existent method.
@@ -66,7 +65,6 @@ public class DataAnalyzer {
             System.out.printf("%-4d | %-7.4f | %s%n", rank, score, data.attribute(index).name());
             rank++;
         }
-        System.out.println("------------------------------------");
 
 
         System.out.println("\n--- Step 5: Identifying Top Actionable Feature (AFeature) ---");

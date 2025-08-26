@@ -86,9 +86,7 @@ public class FeatureComparer {
 
     private void printComparison(Map<String, Number> before, Map<String, Number> after) {
         System.out.println("\n--- Step 9: Feature Comparison Result ---");
-        System.out.println("-----------------------------------------------------------------");
         System.out.printf("%-25s | %-15s | %-15s%n", "Feature", "Before Refactor", "After Refactor");
-        System.out.println("-----------------------------------------------------------------");
 
         List<String> featureNames = Arrays.asList("LOC", "CyclomaticComplexity", "ParameterCount", "Duplication", "NR", "NAuth");
 
@@ -100,6 +98,5 @@ public class FeatureComparer {
             String marker = !beforeValue.equals(afterValue) ? " <-- CHANGED" : "";
             System.out.printf("%-25s | %-15s | %-15s%s%n", feature, beforeValue, afterValue, marker);
         }
-        System.out.println("-----------------------------------------------------------------");
     }
 }

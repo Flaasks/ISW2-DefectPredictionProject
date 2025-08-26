@@ -66,9 +66,7 @@ public class ClassifierRunner {
                 new IBk(3)
         };
 
-        System.out.println("\n---------------------------------------------------------------------------------");
         System.out.printf("%-20s | %-10s | %-10s | %-10s | %-10s%n", "Classifier", "AUC", "Precision", "Recall", "Kappa");
-        System.out.println("---------------------------------------------------------------------------------");
 
         for (Classifier baseClassifier : classifiers) {
             Resample resample = new Resample();
@@ -98,6 +96,5 @@ public class ClassifierRunner {
                     totalRecall / numRepeats,
                     totalKappa / numRepeats);
         }
-        System.out.println("---------------------------------------------------------------------------------");
     }
 }

@@ -96,16 +96,14 @@ public class WhatIfSimulator {
         int defectsInB = countDefectivePredictions(trainedModel, datasetB);
         int defectsInC = countDefectivePredictions(trainedModel, datasetC);
 
-        System.out.println("\n------------------------------------------------------------------");
+        final String ROW_FMT = "| %-20s | %-15d | %-15d |%n";
+
         System.out.println("                      WHAT-IF ANALYSIS RESULTS                      ");
-        System.out.println("------------------------------------------------------------------");
         System.out.printf("| %-20s | %-15s | %-15s |%n", "Dataset", "Total Instances", "Predicted Defects");
-        System.out.println("------------------------------------------------------------------");
-        System.out.printf("| %-20s | %-15d | %-15d |%n", "A (Full Dataset)", datasetA.numInstances(), defectsInA);
-        System.out.printf("| %-20s | %-15d | %-15d |%n", "B+ (LOC > 1)", datasetBplus.numInstances(), defectsInBplus);
-        System.out.printf("| %-20s | %-15d | %-15d |%n", "B (B+ with LOC=1)", datasetB.numInstances(), defectsInB);
-        System.out.printf("| %-20s | %-15d | %-15d |%n", "C (LOC <= 1)", datasetC.numInstances(), defectsInC);
-        System.out.println("------------------------------------------------------------------");
+        System.out.printf(ROW_FMT, "A (Full Dataset)", datasetA.numInstances(), defectsInA);
+        System.out.printf(ROW_FMT, "B+ (LOC > 1)", datasetBplus.numInstances(), defectsInBplus);
+        System.out.printf(ROW_FMT, "B (B+ with LOC=1)", datasetB.numInstances(), defectsInB);
+        System.out.printf(ROW_FMT, "C (LOC <= 1)", datasetC.numInstances(), defectsInC);
 
         // --- Step 13: Analyze the table and answer the main question ---
         System.out.println("\n--- Step 13: Final Analysis ---");
