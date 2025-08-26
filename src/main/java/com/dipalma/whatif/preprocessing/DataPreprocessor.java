@@ -2,6 +2,7 @@ package com.dipalma.whatif.preprocessing;
 
 
 import weka.core.Attribute;
+import weka.core.Instance;
 import weka.core.Instances;
 import weka.core.converters.CSVLoader;
 import weka.core.converters.CSVSaver;
@@ -12,9 +13,8 @@ import org.apache.commons.math3.stat.descriptive.DescriptiveStatistics;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
+import java.util.Objects;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -188,48 +188,73 @@ public class DataPreprocessor {
     }
 
 
+    /** Ritorna true se l'attributo ha lo stesso valore (o tutti missing) su tutte le istanze. */
+    private static boolean isConstantAcrossInstances(Instances data, int attrIndex) {
+        Double first = null;
+        for (int r = 0; r < data.numInstances(); r++) {
+            Instance inst = data.instance(r);
+            if (inst.isMissing(attrIndex)) {
+                continue; // ignora missing
+            }
+            double v = inst.value(attrIndex);
+            if (first == null) {
+                first = v;
+            } else if (Double.compare(v, first) != 0) {
+                return false; // trovato un valore diverso
+            }
+        }
+        // se tutti missing o tutti uguali → costante
+        return true;
+    }
+
+
     private Instances removeConstantAttributes(Instances data) throws Exception {
-        List<Integer> constantAttrIndices = new ArrayList<>();
+        // ritorna una copia se dataset vuoto o senza attributi
+        if (data == null || data.numAttributes() == 0 || data.numInstances() == 0) {
+            return new Instances(Objects.requireNonNull(data));
+        }
 
-        // Loop through all attributes to find which ones are constant
+        final int classIdx = data.classIndex();
+        final List<Integer> toRemove = new ArrayList<>();
+
+        // individua gli attributi costanti (escluso l'eventuale class attribute)
         for (int i = 0; i < data.numAttributes(); i++) {
-            Attribute attribute = data.attribute(i);
-
-            // We only consider numeric attributes that are NOT the class attribute
-            if (attribute.isNumeric() && i != data.classIndex()) {
-                // Use a Set to find the number of unique values in the column
-                Set<Double> uniqueValues = new HashSet<>();
-                for (int j = 0; j < data.numInstances(); j++) {
-                    uniqueValues.add(data.instance(j).value(i));
-                    // If we find more than one unique value, we can stop checking this column
-                    if (uniqueValues.size() > 1) {
-                        break;
-                    }
+            if (i == classIdx) {
+                continue; // non rimuovere la classe
+            }
+            if (isConstantAcrossInstances(data, i)) {
+                if (log.isDebugEnabled()) {
+                    String name = data.attribute(i).name();
+                    log.debug("Marking constant attribute for removal: {}", name);
                 }
-
-                // If, after checking all rows, there's only 1 unique value, the column is constant
-                if (uniqueValues.size() <= 1) {
-                    constantAttrIndices.add(i);
-                    if (log.isDebugEnabled()) {
-                        String attrName = attribute.name();
-                        log.debug("Marking constant attribute for removal: {}", attrName);
-                    }
-                }
+                toRemove.add(i);
             }
         }
 
-        if (constantAttrIndices.isEmpty()) {
-            return data; // No attributes to remove
+        // se non c’è nulla da rimuovere, restituisci una copia
+        if (toRemove.isEmpty()) {
+            return new Instances(data);
         }
 
-        // Use the simple 'Remove' filter to delete the identified columns
-        Remove removeFilter = new Remove();
-        int[] indicesToRemove = constantAttrIndices.stream().mapToInt(i -> i).toArray();
-        removeFilter.setAttributeIndicesArray(indicesToRemove);
-        removeFilter.setInputFormat(data);
+        // rimuovi gli attributi costanti con il filtro "Remove"
+        Remove rm = new Remove();
+        rm.setAttributeIndicesArray(toRemove.stream().mapToInt(Integer::intValue).toArray());
+        rm.setInvertSelection(false);
+        rm.setInputFormat(data);
+        Instances result = Filter.useFilter(data, rm);
 
-        return Filter.useFilter(data, removeFilter);
+        // riallinea l’attributo di classe (per nome), se presente
+        if (classIdx >= 0 && data.classAttribute() != null) {
+            Attribute oldClass = data.classAttribute();
+            Attribute newClass = result.attribute(oldClass.name());
+            if (newClass != null) {
+                result.setClass(newClass);
+            }
+        }
+
+        return result;
     }
+
 
     private Instances scaleData(Instances data) throws Exception {
         Standardize filter = new Standardize();
