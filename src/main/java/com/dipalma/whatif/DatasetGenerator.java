@@ -103,7 +103,7 @@ public class DatasetGenerator {
             }
             writeToCsv(projectKey + ".csv", csvData);
         } catch (IOException | GitAPIException e) {
-            e.printStackTrace();
+            log.error("Failed while writing the csv file", e);
         }
     }
 
@@ -152,11 +152,12 @@ public class DatasetGenerator {
     private double calculateProportionCoefficient(List<JiraTicket> tickets) {
         List<Double> pValues = new ArrayList<>();
         for (JiraTicket ticket : tickets) {
-            if (ticket.getIntroductionVersionIndex() > 0 && ticket.getFixedVersionIndex() > 0 && ticket.getOpeningVersionIndex() > 0) {
-                if (ticket.getFixedVersionIndex() > ticket.getOpeningVersionIndex()) {
+            if (ticket.getIntroductionVersionIndex() > 0
+                    && ticket.getFixedVersionIndex() > 0
+                    && ticket.getOpeningVersionIndex() > 0
+                    && ticket.getFixedVersionIndex() > ticket.getOpeningVersionIndex()) {
                     double p = (double) (ticket.getFixedVersionIndex() - ticket.getIntroductionVersionIndex()) / (ticket.getFixedVersionIndex() - ticket.getOpeningVersionIndex());
                     pValues.add(p);
-                }
             }
         }
         if (pValues.isEmpty()) return 1.5;

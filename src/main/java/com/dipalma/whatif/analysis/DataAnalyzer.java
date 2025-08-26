@@ -67,7 +67,10 @@ public class DataAnalyzer {
             // Weka returns an array where [0] is the attribute index and [1] is its score.
             int index = (int) rankedAttribute[0];
             double score = rankedAttribute[1];
-            log.debug("{}", String.format(RANK_ROW_FMT, rank, score, data.attribute(index).name()));
+            if (log.isDebugEnabled()) {
+                String attrName = data.attribute(index).name();
+                log.debug("{}", String.format(RANK_ROW_FMT, rank, score, attrName));
+            }
             rank++;
         }
 
