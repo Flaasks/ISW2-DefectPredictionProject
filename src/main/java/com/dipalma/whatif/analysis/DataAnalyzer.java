@@ -89,7 +89,10 @@ public class DataAnalyzer {
                 break; // Found the highest ranked actionable feature
             }
         }
-        log.info("Identified AFeature: {} (Score: {})", aFeature, String.format("%.4f", highestScore));
+        if (log.isInfoEnabled()) {
+            String score4 = String.format("%.4f", highestScore);
+            log.info("Identified AFeature: {} (Score: {})", aFeature, score4);
+        }
 
         log.info("--- Step 6: Identifying Target Method (AFMethod) ---");
         findHighImpactMethod(aFeature);
@@ -115,8 +118,13 @@ public class DataAnalyzer {
         if (afMethodOpt.isPresent()) {
             CSVRecord afMethod = afMethodOpt.get();
             log.info("Identified AFMethod (buggy method in last release with highest {}):", aFeature);
-            log.info("  MethodName: {}", afMethod.get("MethodName"));
-            log.info("  {} Value: {}", aFeature, afMethod.get(aFeature));
+            if (log.isInfoEnabled()) {
+                Object methodName   = afMethod.get("MethodName");
+                Object featureValue = afMethod.get(aFeature);
+
+                log.info("  MethodName: {}", methodName);
+                log.info("  {} Value: {}", aFeature, featureValue);
+            }
         } else {
             log.warn("Could not find any buggy methods in the last release ({}) to select AFMethod.", lastRelease);
         }
