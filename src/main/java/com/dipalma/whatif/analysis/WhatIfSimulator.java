@@ -99,7 +99,7 @@ public class WhatIfSimulator {
         log.info("--- Step 12: Predicting Defectiveness and Creating Results Table ---");
         int defectsInA = countDefectivePredictions(trainedModel, datasetA);
         int defectsInBplus = countDefectivePredictions(trainedModel, datasetBplus);
-        int defectsInB = countDefectivePredictions(trainedModel, datasetB);
+        double defectsInB = countDefectivePredictions(trainedModel, datasetB);
         int defectsInC = countDefectivePredictions(trainedModel, datasetC);
 
         log.info("                      WHAT-IF ANALYSIS RESULTS                      ");

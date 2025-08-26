@@ -115,6 +115,7 @@ public class MethodTracker {
         int totalChurn = 0; // per la media
     }
 
+
     private ChangeStats collectChangeStats(
             String filepath,
             int methodStartLine,
@@ -130,26 +131,24 @@ public class MethodTracker {
             walk.markStart(releaseCommit);
 
             for (RevCommit commit : walk) {
-                if (isRootCommit(commit)) {
-                    continue;
-                }
 
-                CommitChurn churn = computeCommitChurn(
-                        fmt, walk, commit, filepath, methodStartLine, methodEndLine
-                );
+                if (commit.getParentCount() > 0) {
 
-                if (!churn.touched) {
-                    continue; // il metodo non è stato toccato in questo commit
-                }
+                    CommitChurn churn = computeCommitChurn(
+                            fmt, walk, commit,
+                            filepath, methodStartLine, methodEndLine
+                    );
 
-                stats.revisions++;
-                stats.authors.add(churn.authorEmail);
-                stats.linesAdded  += churn.linesAdded;
-                stats.linesDeleted += churn.linesDeleted;
-
-                stats.totalChurn += churn.totalChurn;
-                if (churn.totalChurn > stats.maxChurn) {
-                    stats.maxChurn = churn.totalChurn;
+                    if (churn.touched) {
+                        stats.revisions++;
+                        stats.authors.add(churn.authorEmail);
+                        stats.linesAdded   += churn.linesAdded;
+                        stats.linesDeleted += churn.linesDeleted;
+                        stats.totalChurn   += churn.totalChurn;
+                        if (churn.totalChurn > stats.maxChurn) {
+                            stats.maxChurn = churn.totalChurn;
+                        }
+                    }
                 }
             }
         }
@@ -221,10 +220,6 @@ public class MethodTracker {
         fmt.setRepository(repo);
         // Manteniamo lo stesso comportamento del codice originale (niente rename detection, ecc.)
         return fmt;
-    }
-
-    private static boolean isRootCommit(RevCommit commit) {
-        return commit.getParentCount() == 0;
     }
 
     private static int linesAdded(Edit edit) {
