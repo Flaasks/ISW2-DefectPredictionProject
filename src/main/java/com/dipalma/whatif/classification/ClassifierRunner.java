@@ -54,9 +54,11 @@ public class ClassifierRunner {
             this.data = loadedData;
         }
 
-        log.info("Clean data loaded. Class attribute '{}' is: {}",
-                this.data.classAttribute().name(),
-                this.data.classAttribute().isNominal() ? "Nominal" : "Categorical");
+        if (log.isInfoEnabled()) {
+            var clsAttr = this.data.classAttribute();
+            var kind    = clsAttr.isNominal() ? "Nominal" : "Categorical";
+            log.info("Clean data loaded. Class attribute '{}' is: {}", clsAttr.name(), kind);
+        }
         log.info("Using {} attributes for classification.", this.data.numAttributes());
     }
 
@@ -74,7 +76,9 @@ public class ClassifierRunner {
                 new IBk(3)
         };
 
-        log.info("{}", String.format(HEADER_FMT, "Classifier", "AUC", "Precision", "Recall", "Kappa"));
+        if (log.isInfoEnabled()) {
+            log.info("{}", String.format(HEADER_FMT, "Classifier", "AUC", "Precision", "Recall", "Kappa"));
+        }
         for (Classifier baseClassifier : classifiers) {
             Resample resample = new Resample();
             resample.setBiasToUniformClass(1.0);
@@ -96,14 +100,16 @@ public class ClassifierRunner {
                 totalKappa += eval.kappa();
             }
 
-            log.info("{}", String.format(
-                    ROW_FMT,
-                    baseClassifier.getClass().getSimpleName(),
-                    totalAuc / numRepeats,
-                    totalPrecision / numRepeats,
-                    totalRecall / numRepeats,
-                    totalKappa / numRepeats
-            ));
+            if (log.isInfoEnabled()) {
+                log.info("{}", String.format(
+                        ROW_FMT,
+                        baseClassifier.getClass().getSimpleName(),
+                        totalAuc / numRepeats,
+                        totalPrecision / numRepeats,
+                        totalRecall / numRepeats,
+                        totalKappa / numRepeats
+                ));
+            }
         }
     }
 }
