@@ -92,7 +92,9 @@ public class FeatureComparer {
 
     private void printComparison(Map<String, Number> before, Map<String, Number> after) {
         log.info("--- Step 9: Feature Comparison Result ---");
-        log.info("{}", String.format(HEADER_FMT, "Feature", "Before Refactor", "After Refactor"));
+        if (log.isInfoEnabled()) {
+            log.info("{}", String.format(HEADER_FMT, "Feature", "Before Refactor", "After Refactor"));
+        }
 
         List<String> featureNames = Arrays.asList("LOC", "CyclomaticComplexity", "ParameterCount", "Duplication", "NR", "NAuth");
 
@@ -102,7 +104,9 @@ public class FeatureComparer {
             String afterValue = after.getOrDefault(feature, 0).toString();
 
             String marker = !beforeValue.equals(afterValue) ? " <-- CHANGED" : "";
-            log.info("{}", String.format(ROW_FMT, feature, beforeValue, afterValue, marker));
+            if (log.isInfoEnabled()) {
+                log.info("{}", String.format(ROW_FMT, feature, beforeValue, afterValue, marker));
+            }
         }
     }
 }
