@@ -20,7 +20,6 @@ import java.time.format.DateTimeFormatter; // Import the formatter
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 
@@ -54,7 +53,7 @@ public class JiraConnector {
         releases.sort(Comparator.naturalOrder());
         return IntStream.range(0, releases.size())
                 .mapToObj(i -> new ProjectRelease(releases.get(i).name(), releases.get(i).releaseDate(), i + 1))
-                .collect(Collectors.toList());
+                .toList();
     }
 
     public List<JiraTicket> getBugTickets() throws IOException {
