@@ -210,7 +210,10 @@ public class DataPreprocessor {
                 // If, after checking all rows, there's only 1 unique value, the column is constant
                 if (uniqueValues.size() <= 1) {
                     constantAttrIndices.add(i);
-                    log.debug("Marking constant attribute for removal: {}", attribute.name());
+                    if (log.isDebugEnabled()) {
+                        String attrName = attribute.name();
+                        log.debug("Marking constant attribute for removal: {}", attrName);
+                    }
                 }
             }
         }
