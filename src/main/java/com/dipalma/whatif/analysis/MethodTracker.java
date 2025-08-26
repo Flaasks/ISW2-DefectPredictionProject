@@ -14,6 +14,7 @@ import org.eclipse.jgit.diff.DiffFormatter;
 import org.eclipse.jgit.diff.Edit;
 import org.eclipse.jgit.patch.FileHeader;
 import org.eclipse.jgit.revwalk.RevCommit;
+import org.eclipse.jgit.revwalk.RevWalk;
 import org.eclipse.jgit.util.io.DisabledOutputStream;
 
 import java.io.IOException;
@@ -98,71 +99,132 @@ public class MethodTracker {
         }
     }
 
-    /**
-     * Accurately calculates all change history features by analyzing git diffs.
-     */
-    private Map<String, Number> calculateChangeHistoryFeatures(TrackedMethod trackedMethod, CallableDeclaration<?> callable, RevCommit releaseCommit) throws GitAPIException, IOException {
-        Map<String, Number> features = new HashMap<>();
-        Set<String> authors = new HashSet<>();
-        int revisionCount = 0;
-        int totalLinesAdded = 0;
-        int totalLinesDeleted = 0;
+    // Piccolo contenitore per accumulare i contatori
+    private static final class ChangeStats {
+        int revisions = 0;
+        final Set<String> authors = new HashSet<>();
+        int linesAdded = 0;
+        int linesDeleted = 0;
         int maxChurn = 0;
+        int totalChurn = 0; // per la media
+    }
 
-        // Get the line range for the current method to check against diffs
-        int methodStartLine = callable.getBegin().map(p -> p.line).orElse(-1);
-        int methodEndLine = callable.getEnd().map(p -> p.line).orElse(-1);
-        if (methodStartLine == -1) { // Cannot determine range, return placeholders
-            return getPlaceholderChangeFeatures();
-        }
+    /**
+     * Cammina la history fino a releaseCommit (incluso) e accumula le metriche
+     * su tutte le edit che si sovrappongono alle linee del metodo.
+     */
+    private ChangeStats collectChangeStats(
+            String filepath,
+            int methodStartLine,
+            int methodEndLine,
+            RevCommit releaseCommit
+    ) throws IOException {
 
-        Iterable<RevCommit> commits = git.getGit().log().add(releaseCommit.getId()).addPath(trackedMethod.filepath()).call();
+        ChangeStats stats = new ChangeStats();
 
-        for (RevCommit commit : commits) {
-            if (commit.getParentCount() == 0) continue;
-            RevCommit parent = commit.getParent(0);
+        try (RevWalk walk = new RevWalk(git.getRepository());
+             DiffFormatter diffFormatter = new DiffFormatter(DisabledOutputStream.INSTANCE)) {
 
-            try (DiffFormatter diffFormatter = new DiffFormatter(DisabledOutputStream.INSTANCE)) {
-                diffFormatter.setRepository(git.getRepository());
+            diffFormatter.setRepository(git.getRepository());
+            walk.markStart(releaseCommit);
+
+            for (RevCommit commit : walk) {
+                if (commit.getParentCount() == 0) {
+                    continue; // primo commit senza parent: niente diff da analizzare
+                }
+
+                RevCommit parent = walk.parseCommit(commit.getParent(0).getId());
                 List<DiffEntry> diffs = diffFormatter.scan(parent.getTree(), commit.getTree());
 
-                for (DiffEntry diff : diffs) {
-                    if (!diff.getNewPath().equals(trackedMethod.filepath())) continue;
+                boolean touchedThisCommit = false;
+                int churnThisCommit = 0;
 
-                    FileHeader fileHeader = diffFormatter.toFileHeader(diff);
-                    for (Edit edit : fileHeader.toEditList()) {
-                        // A simple overlap check. A more advanced check would track line number changes.
-                        int changeStart = edit.getBeginB();
-                        int changeEnd = edit.getEndB();
-                        if (Math.max(methodStartLine, changeStart) <= Math.min(methodEndLine, changeEnd)) {
-                            revisionCount++;
-                            authors.add(commit.getAuthorIdent().getName());
-                            int linesAdded = edit.getLengthB();
-                            int linesDeleted = edit.getLengthA();
-                            totalLinesAdded += linesAdded;
-                            totalLinesDeleted += linesDeleted;
-                            int currentChurn = linesAdded + linesDeleted;
-                            if (currentChurn > maxChurn) {
-                                maxChurn = currentChurn;
-                            }
-                            // Break from inner loops once we've attributed this commit's change
-                            break;
+                for (DiffEntry diff : diffs) {
+                    if (!affectsFile(diff, filepath)) {
+                        continue;
+                    }
+
+                    FileHeader header = diffFormatter.toFileHeader(diff);
+                    for (Edit edit : header.toEditList()) {
+                        if (!overlapsMethod(methodStartLine, methodEndLine, edit)) {
+                            continue;
                         }
+
+                        if (!touchedThisCommit) {
+                            touchedThisCommit = true;
+                            stats.revisions++;
+                            stats.authors.add(commit.getAuthorIdent().getEmailAddress());
+                        }
+
+                        int added = edit.getEndB() - edit.getBeginB();
+                        int deleted = edit.getEndA() - edit.getBeginA();
+
+                        stats.linesAdded += added;
+                        stats.linesDeleted += deleted;
+                        churnThisCommit += (added + deleted);
+                    }
+                }
+
+                if (churnThisCommit > 0) {
+                    stats.totalChurn += churnThisCommit;
+                    if (churnThisCommit > stats.maxChurn) {
+                        stats.maxChurn = churnThisCommit;
                     }
                 }
             }
         }
 
-        features.put("NR", revisionCount);
-        features.put("NAuth", authors.size());
-        features.put("stmtAdded", totalLinesAdded);
-        features.put("stmtDeleted", totalLinesDeleted);
-        features.put("maxChurn", maxChurn);
-        double avgChurn = (revisionCount > 0) ? (double)(totalLinesAdded + totalLinesDeleted) / revisionCount : 0;
-        features.put("avgChurn", avgChurn);
+        return stats;
+    }
 
+    /** Ritorna true se il diff tocca il file del metodo (gestisce rename/oldPath/newPath). */
+    private static boolean affectsFile(DiffEntry diff, String filepath) {
+        return filepath.equals(diff.getNewPath()) || filepath.equals(diff.getOldPath());
+    }
+
+    /** Overlap semplice tra il range del metodo e il range della edit nella "B side" (post-change). */
+    private static boolean overlapsMethod(int methodStart, int methodEnd, Edit edit) {
+        int changeStart = edit.getBeginB();
+        int changeEnd = edit.getEndB();
+        return Math.max(methodStart, changeStart) <= Math.min(methodEnd, changeEnd);
+    }
+
+    /**
+     * Accurately calculates all change history features by analyzing git diffs.
+     */
+    private Map<String, Number> calculateChangeHistoryFeatures(
+            TrackedMethod trackedMethod,
+            CallableDeclaration<?> callable,
+            RevCommit releaseCommit
+    ) throws IOException {
+
+        if (trackedMethod == null || callable == null || releaseCommit == null) {
+            return getPlaceholderChangeFeatures();
+        }
+
+        final int methodStartLine = callable.getBegin().map(p -> p.line).orElse(-1);
+        final int methodEndLine   = callable.getEnd().map(p -> p.line).orElse(-1);
+        if (methodStartLine < 0 || methodEndLine < 0) {
+            return getPlaceholderChangeFeatures();
+        }
+
+        final ChangeStats stats = collectChangeStats(
+                trackedMethod.filepath(),
+                methodStartLine,
+                methodEndLine,
+                releaseCommit
+        );
+
+        Map<String, Number> features = new HashMap<>();
+        features.put("NR",        stats.revisions);
+        features.put("NAuth",     stats.authors.size());
+        features.put("stmtAdded", stats.linesAdded);
+        features.put("stmtDeleted", stats.linesDeleted);
+        features.put("maxChurn",  stats.maxChurn);
+        features.put("avgChurn",  stats.revisions == 0 ? 0.0 : (double) stats.totalChurn / stats.revisions);
         return features;
     }
+
 
     private Map<String, Number> getPlaceholderChangeFeatures() {
         Map<String, Number> features = new HashMap<>();

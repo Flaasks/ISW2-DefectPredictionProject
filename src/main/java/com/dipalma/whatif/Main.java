@@ -10,6 +10,10 @@ public class Main {
     public static void main(String[] args) {
         System.out.println("Starting What-If Analysis Data Generation...");
 
+        final String BK_PROCESSED = "BOOKKEEPER_processed.csv";
+        final String SN_PROCESSED = "SYNCOPE_processed.csv";
+
+
         try {
             // --- STAGE 1: DATASET CREATION ---
             System.out.println("\n--- [1/3] CREATING DATASETS ---");
@@ -33,20 +37,20 @@ public class Main {
 
             // --- STAGE 3: CLASSIFIER EVALUATION ---
             System.out.println("\n--- [3/4] EVALUATING CLASSIFIERS ---");
-            ClassifierRunner bookkeeperRunner = new ClassifierRunner("BOOKKEEPER_processed.csv");
+            ClassifierRunner bookkeeperRunner = new ClassifierRunner(BK_PROCESSED);
             bookkeeperRunner.runClassification();
 
-            ClassifierRunner syncopeRunner = new ClassifierRunner("SYNCOPE_processed.csv");
+            ClassifierRunner syncopeRunner = new ClassifierRunner(SN_PROCESSED);
             syncopeRunner.runClassification();
             System.out.println("--- CLASSIFIER EVALUATION COMPLETE ---");
 
             // --- STAGE 4: FEATURE & METHOD SELECTION (NEW STEP) ---
             System.out.println("\n--- [4/4] SELECTING FEATURE AND METHOD FOR SIMULATION ---");
             // We use the original CSV to get true feature values and the processed CSV for correlation
-            DataAnalyzer bookkeeperAnalyzer = new DataAnalyzer("BOOKKEEPER.csv", "BOOKKEEPER_processed.csv");
+            DataAnalyzer bookkeeperAnalyzer = new DataAnalyzer("BOOKKEEPER.csv", BK_PROCESSED);
             bookkeeperAnalyzer.findActionableFeatureAndMethod();
 
-            DataAnalyzer syncopeAnalyzer = new DataAnalyzer("SYNCOPE.csv", "SYNCOPE_processed.csv");
+            DataAnalyzer syncopeAnalyzer = new DataAnalyzer("SYNCOPE.csv", SN_PROCESSED);
             syncopeAnalyzer.findActionableFeatureAndMethod();
             System.out.println("--- FEATURE & METHOD SELECTION COMPLETE ---");
 
@@ -70,11 +74,11 @@ public class Main {
             System.out.println("\n--- What-if Analysis ---");
 
             System.out.println("\n--- Analysis for BOOKKEEPER ---");
-            WhatIfSimulator bookkeeperSimulator = new WhatIfSimulator("BOOKKEEPER_processed.csv");
+            WhatIfSimulator bookkeeperSimulator = new WhatIfSimulator(BK_PROCESSED);
             bookkeeperSimulator.runFullDatasetSimulation();
 
             System.out.println("\n--- Analysis for SYNCOPE ---");
-            WhatIfSimulator syncopeSimulator = new WhatIfSimulator("SYNCOPE_processed.csv");
+            WhatIfSimulator syncopeSimulator = new WhatIfSimulator(SN_PROCESSED);
             syncopeSimulator.runFullDatasetSimulation();
 
         } catch (Exception e) {
