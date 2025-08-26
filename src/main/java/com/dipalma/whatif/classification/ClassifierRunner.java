@@ -88,7 +88,10 @@ public class ClassifierRunner {
             classifierWithResample.setFilter(resample);
 
             int numRepeats = 10;
-            double totalAuc = 0, totalPrecision = 0, totalRecall = 0, totalKappa = 0;
+            double totalAuc = 0;
+            double totalPrecision = 0;
+            double totalKappa = 0;
+            double totalRecall = 0;
 
             for (int i = 0; i < numRepeats; i++) {
                 Evaluation eval = new Evaluation(this.data);

@@ -10,13 +10,11 @@ import org.eclipse.jgit.diff.DiffEntry;
 import org.eclipse.jgit.diff.DiffFormatter;
 import org.eclipse.jgit.diff.Edit;
 import org.eclipse.jgit.lib.ObjectId;
-import org.eclipse.jgit.lib.ObjectReader;
 import org.eclipse.jgit.lib.Ref;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.patch.FileHeader;
 import org.eclipse.jgit.revwalk.RevCommit;
 import org.eclipse.jgit.revwalk.RevWalk;
-import org.eclipse.jgit.treewalk.CanonicalTreeParser;
 import org.eclipse.jgit.treewalk.TreeWalk;
 import org.eclipse.jgit.util.io.DisabledOutputStream;
 
@@ -67,26 +65,59 @@ public class GitConnector {
     public Map<String, List<String>> getBugToMethodsMap(List<JiraTicket> tickets) throws IOException {
         log.info("Mapping bug fixes to specific methods...");
         Map<String, List<String>> bugToMethods = new HashMap<>();
-        try (RevWalk revWalk = new RevWalk(repository)) {
+
+        try (RevWalk revWalk = new RevWalk(repository);
+             DiffFormatter diffFormatter = new DiffFormatter(org.eclipse.jgit.util.io.DisabledOutputStream.INSTANCE)) {
+
+            diffFormatter.setRepository(repository);
+
             for (JiraTicket ticket : tickets) {
-                if (ticket.getFixCommitHash() == null) continue;
+                String fixHash = ticket.getFixCommitHash();
+                if (fixHash == null) {
+                    if (log.isDebugEnabled()) {
+                        log.debug("Skipping ticket {} (no fix commit hash)", ticket.getKey());
+                    }
+                    continue;
+                }
 
-                RevCommit commit = revWalk.parseCommit(repository.resolve(ticket.getFixCommitHash()));
-                if (commit.getParentCount() == 0) continue;
+                ObjectId commitId = repository.resolve(fixHash);
+                if (commitId == null) {
+                    if (log.isDebugEnabled()) {
+                        log.debug("Skipping ticket {} (cannot resolve commit {})", ticket.getKey(), fixHash);
+                    }
+                    continue;
+                }
+
+                RevCommit commit = revWalk.parseCommit(commitId);
+                if (commit.getParentCount() == 0) {
+                    if (log.isDebugEnabled()) {
+                        log.debug("Skipping ticket {} (root commit has no parent)", ticket.getKey());
+                    }
+                    continue;
+                }
+
                 RevCommit parent = revWalk.parseCommit(commit.getParent(0).getId());
+                List<DiffEntry> diffs = diffFormatter.scan(parent.getTree(), commit.getTree());
 
-                List<DiffEntry> diffs = getDiff(parent, commit);
                 List<String> affectedMethods = new ArrayList<>();
-
                 for (DiffEntry diff : diffs) {
-                    if (diff.getChangeType() == DiffEntry.ChangeType.MODIFY && diff.getNewPath().endsWith(".java")) {
-                        // *** FIX IS HERE: No longer passing the unused 'parent' parameter ***
+                    String newPath = diff.getNewPath();
+                    String oldPath = diff.getOldPath();
+
+                    boolean isJavaNew = newPath != null && newPath.endsWith(".java");
+                    boolean isJavaOld = oldPath != null && oldPath.endsWith(".java");
+                    String path = isJavaNew ? newPath : (isJavaOld ? oldPath : null);
+                    boolean isTest = path != null && path.toLowerCase().contains("test");
+
+                    if (path != null && !isTest && diff.getChangeType() != DiffEntry.ChangeType.DELETE) {
                         affectedMethods.addAll(getModifiedMethods(diff, commit));
                     }
                 }
+
                 bugToMethods.put(ticket.getKey(), affectedMethods);
             }
         }
+
         log.info("Finished mapping bugs to methods.");
         return bugToMethods;
     }
@@ -173,19 +204,7 @@ public class GitConnector {
         }
         log.info("Finished scanning git log.");
     }
-    public List<DiffEntry> getDiff(RevCommit commit1, RevCommit commit2) throws IOException {
-        try (DiffFormatter diffFormatter = new DiffFormatter(DisabledOutputStream.INSTANCE)) {
-            diffFormatter.setRepository(repository);
-            diffFormatter.setDetectRenames(true);
-            try (ObjectReader reader = repository.newObjectReader()) {
-                CanonicalTreeParser oldTreeParser = new CanonicalTreeParser();
-                oldTreeParser.reset(reader, commit1.getTree().getId());
-                CanonicalTreeParser newTreeParser = new CanonicalTreeParser();
-                newTreeParser.reset(reader, commit2.getTree().getId());
-                return diffFormatter.scan(oldTreeParser, newTreeParser);
-            }
-        }
-    }
+
     public List<String> getJavaFilesForCommit(String commitId) throws GitAPIException, IOException {
         git.checkout().setName(commitId).call(); // Checkout the specific commit
         List<String> javaFiles = new ArrayList<>();
