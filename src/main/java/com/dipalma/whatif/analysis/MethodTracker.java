@@ -12,6 +12,7 @@ import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.diff.DiffEntry;
 import org.eclipse.jgit.diff.DiffFormatter;
 import org.eclipse.jgit.diff.Edit;
+import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.patch.FileHeader;
 import org.eclipse.jgit.revwalk.RevCommit;
 import org.eclipse.jgit.revwalk.RevWalk;
@@ -109,10 +110,6 @@ public class MethodTracker {
         int totalChurn = 0; // per la media
     }
 
-    /**
-     * Cammina la history fino a releaseCommit (incluso) e accumula le metriche
-     * su tutte le edit che si sovrappongono alle linee del metodo.
-     */
     private ChangeStats collectChangeStats(
             String filepath,
             int methodStartLine,
@@ -121,61 +118,118 @@ public class MethodTracker {
     ) throws IOException {
 
         ChangeStats stats = new ChangeStats();
+        Repository repo = git.getRepository();
+        try (RevWalk walk = new RevWalk(repo);
+             DiffFormatter fmt = newDiffFormatter(repo)) {
 
-        try (RevWalk walk = new RevWalk(git.getRepository());
-             DiffFormatter diffFormatter = new DiffFormatter(DisabledOutputStream.INSTANCE)) {
-
-            diffFormatter.setRepository(git.getRepository());
             walk.markStart(releaseCommit);
 
             for (RevCommit commit : walk) {
-                if (commit.getParentCount() == 0) {
-                    continue; // primo commit senza parent: niente diff da analizzare
+                if (isRootCommit(commit)) {
+                    continue;
                 }
 
-                RevCommit parent = walk.parseCommit(commit.getParent(0).getId());
-                List<DiffEntry> diffs = diffFormatter.scan(parent.getTree(), commit.getTree());
+                CommitChurn churn = computeCommitChurn(
+                        fmt, walk, commit, filepath, methodStartLine, methodEndLine
+                );
 
-                boolean touchedThisCommit = false;
-                int churnThisCommit = 0;
-
-                for (DiffEntry diff : diffs) {
-                    if (!affectsFile(diff, filepath)) {
-                        continue;
-                    }
-
-                    FileHeader header = diffFormatter.toFileHeader(diff);
-                    for (Edit edit : header.toEditList()) {
-                        if (!overlapsMethod(methodStartLine, methodEndLine, edit)) {
-                            continue;
-                        }
-
-                        if (!touchedThisCommit) {
-                            touchedThisCommit = true;
-                            stats.revisions++;
-                            stats.authors.add(commit.getAuthorIdent().getEmailAddress());
-                        }
-
-                        int added = edit.getEndB() - edit.getBeginB();
-                        int deleted = edit.getEndA() - edit.getBeginA();
-
-                        stats.linesAdded += added;
-                        stats.linesDeleted += deleted;
-                        churnThisCommit += (added + deleted);
-                    }
+                if (!churn.touched) {
+                    continue; // il metodo non è stato toccato in questo commit
                 }
 
-                if (churnThisCommit > 0) {
-                    stats.totalChurn += churnThisCommit;
-                    if (churnThisCommit > stats.maxChurn) {
-                        stats.maxChurn = churnThisCommit;
-                    }
+                stats.revisions++;
+                stats.authors.add(churn.authorEmail);
+                stats.linesAdded  += churn.linesAdded;
+                stats.linesDeleted += churn.linesDeleted;
+
+                stats.totalChurn += churn.totalChurn;
+                if (churn.totalChurn > stats.maxChurn) {
+                    stats.maxChurn = churn.totalChurn;
                 }
             }
         }
 
         return stats;
     }
+
+    /* ========= Helper & DTO interni ========= */
+
+    private static final class CommitChurn {
+        final String authorEmail;
+        boolean touched = false;
+        int linesAdded = 0;
+        int linesDeleted = 0;
+        int totalChurn = 0;
+
+        CommitChurn(String authorEmail) {
+            this.authorEmail = authorEmail;
+        }
+    }
+
+    private CommitChurn computeCommitChurn(
+            DiffFormatter fmt,
+            RevWalk walk,
+            RevCommit commit,
+            String filepath,
+            int methodStartLine,
+            int methodEndLine
+    ) throws IOException {
+
+        RevCommit parent = walk.parseCommit(commit.getParent(0).getId());
+        List<DiffEntry> diffs = fmt.scan(parent.getTree(), commit.getTree());
+
+        CommitChurn churn = new CommitChurn(commit.getAuthorIdent().getEmailAddress());
+
+        for (DiffEntry diff : diffs) {
+            if (!affectsFile(diff, filepath)) {
+                continue;
+            }
+            FileHeader header = fmt.toFileHeader(diff);
+            accumulateEdits(churn, header.toEditList(), methodStartLine, methodEndLine);
+        }
+        return churn;
+    }
+
+    private static void accumulateEdits(
+            CommitChurn churn,
+            List<Edit> edits,
+            int methodStartLine,
+            int methodEndLine
+    ) {
+        for (Edit edit : edits) {
+            if (!overlapsMethod(methodStartLine, methodEndLine, edit)) {
+                continue;
+            }
+            churn.touched = true;
+
+            int added   = linesAdded(edit);
+            int deleted = linesDeleted(edit);
+
+            churn.linesAdded  += added;
+            churn.linesDeleted += deleted;
+            churn.totalChurn  += added + deleted;
+        }
+    }
+
+    private static DiffFormatter newDiffFormatter(Repository repo) {
+        DiffFormatter fmt = new DiffFormatter(DisabledOutputStream.INSTANCE);
+        fmt.setRepository(repo);
+        // Manteniamo lo stesso comportamento del codice originale (niente rename detection, ecc.)
+        return fmt;
+    }
+
+    private static boolean isRootCommit(RevCommit commit) {
+        return commit.getParentCount() == 0;
+    }
+
+    private static int linesAdded(Edit edit) {
+        return Math.max(0, edit.getEndB() - edit.getBeginB());
+    }
+
+    private static int linesDeleted(Edit edit) {
+        return Math.max(0, edit.getEndA() - edit.getBeginA());
+    }
+
 
     /** Ritorna true se il diff tocca il file del metodo (gestisce rename/oldPath/newPath). */
     private static boolean affectsFile(DiffEntry diff, String filepath) {
