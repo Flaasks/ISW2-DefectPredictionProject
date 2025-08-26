@@ -15,10 +15,16 @@ import weka.filters.unsupervised.attribute.NumericToNominal;
 import java.io.File;
 import java.util.Random;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 public class ClassifierRunner {
 
     private final String csvFilePath;
     private Instances data;
+    private static final Logger log = LoggerFactory.getLogger(ClassifierRunner.class);
+    private static final String ROW_FMT    = "%-20s | %-10.3f | %-10.3f | %-10.3f | %-10.3f";
+    private static final String HEADER_FMT = "%-20s | %-10s | %-10s | %-10s | %-10s";
 
     public ClassifierRunner(String csvFilePath) {
         this.csvFilePath = csvFilePath;
@@ -48,8 +54,10 @@ public class ClassifierRunner {
             this.data = loadedData;
         }
 
-        System.out.println("Clean data loaded. Class attribute '" + this.data.classAttribute().name() + "' is: " + (this.data.classAttribute().isNominal() ? "Nominal" : "Categorical"));
-        System.out.println("Using " + this.data.numAttributes() + " attributes for classification.");
+        log.info("Clean data loaded. Class attribute '{}' is: {}",
+                this.data.classAttribute().name(),
+                this.data.classAttribute().isNominal() ? "Nominal" : "Categorical");
+        log.info("Using {} attributes for classification.", this.data.numAttributes());
     }
 
     public void runClassification() throws Exception {
@@ -57,8 +65,8 @@ public class ClassifierRunner {
             loadAndPrepareData();
         }
 
-        System.out.println("\n--- Starting Classifier Evaluation for: " + csvFilePath + " ---");
-        System.out.println("Validation Method: 10 times 10-fold Cross-Validation");
+        log.info("--- Starting Classifier Evaluation for: {} ---", csvFilePath);
+        log.info("Validation Method: 10 times 10-fold Cross-Validation");
 
         Classifier[] classifiers = {
                 new RandomForest(),
@@ -66,8 +74,7 @@ public class ClassifierRunner {
                 new IBk(3)
         };
 
-        System.out.printf("%-20s | %-10s | %-10s | %-10s | %-10s%n", "Classifier", "AUC", "Precision", "Recall", "Kappa");
-
+        log.info("{}", String.format(HEADER_FMT, "Classifier", "AUC", "Precision", "Recall", "Kappa"));
         for (Classifier baseClassifier : classifiers) {
             Resample resample = new Resample();
             resample.setBiasToUniformClass(1.0);
@@ -89,12 +96,14 @@ public class ClassifierRunner {
                 totalKappa += eval.kappa();
             }
 
-            System.out.printf("%-20s | %-10.3f | %-10.3f | %-10.3f | %-10.3f%n",
+            log.info("{}", String.format(
+                    ROW_FMT,
                     baseClassifier.getClass().getSimpleName(),
                     totalAuc / numRepeats,
                     totalPrecision / numRepeats,
                     totalRecall / numRepeats,
-                    totalKappa / numRepeats);
+                    totalKappa / numRepeats
+            ));
         }
     }
 }

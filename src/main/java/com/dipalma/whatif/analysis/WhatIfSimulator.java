@@ -12,10 +12,16 @@ import weka.filters.unsupervised.attribute.NumericToNominal;
 
 import java.io.File;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 public class WhatIfSimulator {
 
     private final String processedCsvPath;  
     private Instances datasetA;
+    private static final Logger log = LoggerFactory.getLogger(WhatIfSimulator.class);
+    private static final String TABLE_HEADER_FMT = "| %-20s | %-15s | %-15s |";
+    private static final String ROW_FMT_NO_NL    = "| %-20s | %-15d | %-15d |";
 
     public WhatIfSimulator(String processedCsvPath) {
         this.processedCsvPath = processedCsvPath;
@@ -38,7 +44,7 @@ public class WhatIfSimulator {
             this.datasetA = rawData;
         }
 
-        System.out.println("Loaded and prepared dataset A with " + datasetA.numInstances() + " instances and " + datasetA.numAttributes() + " attributes.");
+        log.info("Loaded and prepared dataset A with {} instances and {} attributes.", datasetA.numInstances(), datasetA.numAttributes());
     }
 
     /**
@@ -49,12 +55,12 @@ public class WhatIfSimulator {
         loadAndPrepareData();
 
         // --- Step 10: Create datasets B+, C, and B ---
-        System.out.println("\n--- Step 10: Creating What-If Datasets ---");
+        log.info("--- Step 10: Creating What-If Datasets ---");
         // Our chosen Actionable Feature
         String aFeature = "LOC";
         Attribute locAttribute = datasetA.attribute(aFeature);
         if (locAttribute == null) {
-            System.out.println("Error: Could not find AFeature '" + aFeature + "' in the dataset.");
+            log.info("Error: Could not find AFeature '{}' in the dataset.", aFeature);
             return;
         }
 
@@ -68,16 +74,16 @@ public class WhatIfSimulator {
                 datasetC.add(datasetA.instance(i));
             }
         }
-        System.out.println("Created Dataset B+ (size: " + datasetBplus.numInstances() + ") and C (size: " + datasetC.numInstances() + ")");
+        log.info("Created Dataset B+ (size: {}) and C (size: {})", datasetBplus.numInstances(), datasetC.numInstances());
 
         Instances datasetB = new Instances(datasetBplus);
         for (int i = 0; i < datasetB.numInstances(); i++) {
             datasetB.instance(i).setValue(locAttribute, 1.0);
         }
-        System.out.println("Created synthetic Dataset B by setting LOC to 1 for all instances in B+.");
+        log.info("Created synthetic Dataset B by setting LOC to 1 for all instances in B+.");
 
         // --- Step 11: Train BClassifier on the full dataset A ---
-        System.out.println("\n--- Step 11: Training BClassifier (RandomForest) on full dataset A ---");
+        log.info("--- Step 11: Training BClassifier (RandomForest) on full dataset A ---");
         Classifier bClassifier = new RandomForest();
         Resample resample = new Resample();
         resample.setBiasToUniformClass(1.0);
@@ -87,35 +93,36 @@ public class WhatIfSimulator {
         trainedModel.setClassifier(bClassifier);
 
         trainedModel.buildClassifier(datasetA);
-        System.out.println("Model training complete.");
+        log.info("Model training complete.");
 
         // --- Step 12: Predict on all datasets and create the results table ---
-        System.out.println("\n--- Step 12: Predicting Defectiveness and Creating Results Table ---");
+        log.info("--- Step 12: Predicting Defectiveness and Creating Results Table ---");
         int defectsInA = countDefectivePredictions(trainedModel, datasetA);
         int defectsInBplus = countDefectivePredictions(trainedModel, datasetBplus);
         int defectsInB = countDefectivePredictions(trainedModel, datasetB);
         int defectsInC = countDefectivePredictions(trainedModel, datasetC);
 
-        final String ROW_FMT = "| %-20s | %-15d | %-15d |%n";
-
-        System.out.println("                      WHAT-IF ANALYSIS RESULTS                      ");
-        System.out.printf("| %-20s | %-15s | %-15s |%n", "Dataset", "Total Instances", "Predicted Defects");
-        System.out.printf(ROW_FMT, "A (Full Dataset)", datasetA.numInstances(), defectsInA);
-        System.out.printf(ROW_FMT, "B+ (LOC > 1)", datasetBplus.numInstances(), defectsInBplus);
-        System.out.printf(ROW_FMT, "B (B+ with LOC=1)", datasetB.numInstances(), defectsInB);
-        System.out.printf(ROW_FMT, "C (LOC <= 1)", datasetC.numInstances(), defectsInC);
+        log.info("                      WHAT-IF ANALYSIS RESULTS                      ");
+        log.info("{}", String.format(TABLE_HEADER_FMT, "Dataset", "Total Instances", "Predicted Defects"));
+        log.info("{}", String.format(ROW_FMT_NO_NL, "A (Full Dataset)",  datasetA.numInstances(), defectsInA));
+        log.info("{}", String.format(ROW_FMT_NO_NL, "B+ (LOC > 1)",      datasetBplus.numInstances(), defectsInBplus));
+        log.info("{}", String.format(ROW_FMT_NO_NL, "B (B+ with LOC=1)", datasetB.numInstances(),    defectsInB));
+        log.info("{}", String.format(ROW_FMT_NO_NL, "C (LOC <= 1)",      datasetC.numInstances(),     defectsInC));
 
         // --- Step 13: Analyze the table and answer the main question ---
-        System.out.println("\n--- Step 13: Final Analysis ---");
+        log.info("--- Step 13: Final Analysis ---");
         if (defectsInBplus > 0) {
             double preventable = defectsInBplus - defectsInB;
             double reductionOutOfPreventable = (preventable / defectsInBplus) * 100;
 
-            System.out.printf("By simulating the reduction of LOC, the number of predicted buggy methods in the 'at-risk' group (B+) dropped from %d to %d.%n", defectsInBplus, defectsInB);
-            System.out.printf("This represents a %.2f%% reduction among the methods that could be refactored.%n", reductionOutOfPreventable);
-            System.out.printf("\nANSWER: An estimated %.0f buggy methods could have been prevented by having low Lines of Code.%n", preventable);
+            log.info("By simulating the reduction of LOC, the number of predicted buggy methods in the 'at-risk' group (B+) dropped from {} to {}.",
+                    defectsInBplus, defectsInB);
+            log.info("This represents a {}% reduction among the methods that could be refactored.",
+                    String.format("%.2f", reductionOutOfPreventable));
+            log.info("ANSWER: An estimated {} buggy methods could have been prevented by having low Lines of Code.",
+                    Math.round(preventable));
         } else {
-            System.out.println("No defects were predicted in the 'at-risk' group (B+), so no preventable defects were found.");
+            log.info("No defects were predicted in the 'at-risk' group (B+), so no preventable defects were found.");
         }
     }
 

@@ -29,11 +29,15 @@ import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 public class GitConnector {
     private final String remoteUrl;
     private final String localPath;
     private Repository repository;
     private Git git;
+    private static final Logger log = LoggerFactory.getLogger(GitConnector.class);
 
     // ... (constructor and cloneOrOpenRepo methods remain the same)
     public GitConnector(String remoteUrl, String localPath) {
@@ -44,14 +48,14 @@ public class GitConnector {
     public void cloneOrOpenRepo() throws IOException, GitAPIException {
         File localDir = new File(localPath);
         if (localDir.exists()) {
-            System.out.println("Opening existing repository at " + localPath);
+            log.info("Opening existing repository at {}", localPath);
             git = Git.open(localDir);
             repository = git.getRepository();
         } else {
-            System.out.println("Cloning " + remoteUrl + " to " + localPath + "...");
+            log.info("Cloning {} to {}...", remoteUrl, localPath);
             git = Git.cloneRepository().setURI(remoteUrl).setDirectory(localDir).call();
             repository = git.getRepository();
-            System.out.println("Clone complete.");
+            log.info("Clone complete.");
         }
     }
 
@@ -61,7 +65,7 @@ public class GitConnector {
      * @return A map where the key is the bug ID and the value is a list of affected method signatures.
      */
     public Map<String, List<String>> getBugToMethodsMap(List<JiraTicket> tickets) throws IOException {
-        System.out.println("Mapping bug fixes to specific methods...");
+        log.info("Mapping bug fixes to specific methods...");
         Map<String, List<String>> bugToMethods = new HashMap<>();
         try (RevWalk revWalk = new RevWalk(repository)) {
             for (JiraTicket ticket : tickets) {
@@ -83,7 +87,7 @@ public class GitConnector {
                 bugToMethods.put(ticket.getKey(), affectedMethods);
             }
         }
-        System.out.println("Finished mapping bugs to methods.");
+        log.info("Finished mapping bugs to methods.");
         return bugToMethods;
     }
 
@@ -139,7 +143,7 @@ public class GitConnector {
                 if (tagRef != null) {
                     releaseCommits.put(release.name(), walk.parseCommit(tagRef.getObjectId()));
                 } else {
-                    System.out.println("Warning: Could not find a matching Git tag for JIRA release: " + release.name());
+                    log.warn("Could not find a matching Git tag for JIRA release: {}", release.name());
                 }
             }
         }
@@ -147,7 +151,7 @@ public class GitConnector {
     }
 
     public void findAndSetFixCommits(List<JiraTicket> tickets) throws GitAPIException, IOException {
-        System.out.println("Scanning git log to link commits to JIRA tickets...");
+        log.info("Scanning git log to link commits to JIRA tickets...");
         Pattern pattern = Pattern.compile("([A-Z][A-Z0-9]+-\\d+)");
         Map<String, JiraTicket> ticketMap = new HashMap<>();
         for (JiraTicket ticket : tickets) {
@@ -167,7 +171,7 @@ public class GitConnector {
                 }
             }
         }
-        System.out.println("Finished scanning git log.");
+        log.info("Finished scanning git log.");
     }
     public List<DiffEntry> getDiff(RevCommit commit1, RevCommit commit2) throws IOException {
         try (DiffFormatter diffFormatter = new DiffFormatter(DisabledOutputStream.INSTANCE)) {

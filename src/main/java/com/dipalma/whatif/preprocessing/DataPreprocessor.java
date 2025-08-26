@@ -16,10 +16,15 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 public class DataPreprocessor {
 
     private final String inputFilePath;
     private final String outputFilePath;
+
+    private static final Logger log = LoggerFactory.getLogger(DataPreprocessor.class);
 
     private static final String RELEASE_ATTR = "Release";
     private static final double OUTLIER_STD_MULTIPLIER = 3.0;
@@ -39,31 +44,31 @@ public class DataPreprocessor {
         if (data.classIndex() == -1) {
             data.setClassIndex(data.numAttributes() - 1);
         }
-        System.out.println("Original data shape: " + data.numInstances() + " rows, " + data.numAttributes() + " attributes.");
+        log.info("Original data shape: {} rows, {} attributes.", data.numInstances(), data.numAttributes());
 
         // 2. Sanitize
         Instances sanitizedData = sanitizeData(data);
-        System.out.println("Data sanitized.");
+        log.info("Data sanitized.");
 
         // 3. Remove outliers
         Instances dataWithoutOutliers = removeOutliers(sanitizedData);
-        System.out.println("Data shape after outlier removal: " + dataWithoutOutliers.numInstances() + " rows.");
+        log.info("Data shape after outlier removal: {} rows.", dataWithoutOutliers.numInstances());
 
         // 4. Remove constant numeric features
         Instances dataWithoutUseless = removeConstantAttributes(dataWithoutOutliers);
-        System.out.println("Data shape after removing useless attributes: " + dataWithoutUseless.numInstances() + " rows.");
+        log.info("Data shape after removing useless attributes: {} rows.", dataWithoutUseless.numInstances());
 
         // 5. Scale the data
         Instances scaledData = scaleData(dataWithoutUseless);
-        System.out.println("Data successfully scaled.");
+        log.info("Data successfully scaled.");
 
         // 6. *** NEW AND FINAL STEP: Remove identifier columns ***
         Instances finalData = removeIdentifierColumns(scaledData);
-        System.out.println("Identifier columns removed. Final data has " + finalData.numAttributes() + " attributes.");
+        log.info("Identifier columns removed. Final data has {} attributes.", finalData.numAttributes());
 
         // 7. Save the final, clean data
         saveToCsv(finalData, this.outputFilePath);
-        System.out.println("Processed data saved to: " + this.outputFilePath);
+        log.info("Processed data saved to: {}", this.outputFilePath);
     }
 
     private Instances removeIdentifierColumns(Instances data) throws Exception {
@@ -205,7 +210,7 @@ public class DataPreprocessor {
                 // If, after checking all rows, there's only 1 unique value, the column is constant
                 if (uniqueValues.size() <= 1) {
                     constantAttrIndices.add(i);
-                    System.out.println("Marking constant attribute for removal: " + attribute.name());
+                    log.debug("Marking constant attribute for removal: {}", attribute.name());
                 }
             }
         }

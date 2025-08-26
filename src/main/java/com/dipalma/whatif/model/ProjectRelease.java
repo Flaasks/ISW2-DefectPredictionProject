@@ -3,6 +3,7 @@ package com.dipalma.whatif.model;
 import java.time.LocalDate;
 import java.util.Objects;
 
+
 /**
  * Represents a single, sorted release of a project.
  */
@@ -10,6 +11,7 @@ public final class ProjectRelease implements Comparable<ProjectRelease> {
     private final String name;
     private final LocalDate releaseDate;
     private final int index;
+
 
     public ProjectRelease(String name, LocalDate releaseDate, int index) {
         this.name = name;

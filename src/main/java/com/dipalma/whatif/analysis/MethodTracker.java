@@ -22,9 +22,13 @@ import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 public class MethodTracker {
     private final GitConnector git;
     private final Map<String, TrackedMethod> lastKnownMethods = new HashMap<>();
+    private static final Logger log = LoggerFactory.getLogger(MethodTracker.class);
 
     public MethodTracker(GitConnector git) {
         this.git = git;
@@ -59,7 +63,8 @@ public class MethodTracker {
                     methodAstMap.put(trackedMethod, callable);
                 });
             } catch (Exception e) {
-                System.out.println("Warning: Failed to parse Java file: " + file + " in commit " + commitId + " | " + e.getMessage());
+                log.warn("Failed to parse Java file {} in commit {} | {}",
+                        file, commitId, e.getMessage(), e);
             }
         }
 
@@ -95,7 +100,7 @@ public class MethodTracker {
             Map<String, Number> changeFeatures = calculateChangeHistoryFeatures(method, callable, releaseCommit);
             method.addAllFeatures(changeFeatures);
         } catch (Exception e) {
-            System.out.println("Warning: Could not compute full history for method: " + method.signature());
+            log.info("Warning: Could not compute full history for method: {}", method.signature());
             addPlaceholderChangeFeatures(method);
         }
     }

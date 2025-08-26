@@ -16,18 +16,25 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 public class FeatureComparer {
+
+    private static final Logger log = LoggerFactory.getLogger(FeatureComparer.class);
+    private static final String HEADER_FMT = "%-25s | %-15s | %-15s";
+    private static final String ROW_FMT    = "%-25s | %-15s | %-15s%s";
 
     /**
      * Analyzes two text files and compares the features of the method found in each.
      */
     public void compareMethods(String originalFilePath, String refactoredFilePath) throws IOException {
-        System.out.println("\n--- Comparing Features of Original vs. Refactored Method ---");
+        log.info("--- Comparing Features of Original vs. Refactored Method ---");
 
-        System.out.println("Analyzing original file: " + originalFilePath);
+        log.info("Analyzing original file: {}", originalFilePath);
         Map<String, Number> featuresBefore = extractFeaturesFromFile(originalFilePath);
 
-        System.out.println("Analyzing refactored file: " + refactoredFilePath);
+        log.info("Analyzing refactored file: {}", refactoredFilePath);
         Map<String, Number> featuresAfter = extractFeaturesFromFile(refactoredFilePath);
 
         printComparison(featuresBefore, featuresAfter);
@@ -52,8 +59,7 @@ public class FeatureComparer {
                 callable = StaticJavaParser.parseMethodDeclaration(content);
             }
         } catch (Exception e) {
-            System.err.println("FATAL: Failed to parse content from file: " + filePath);
-            e.printStackTrace();
+            log.error("FATAL: Failed to parse content from file: {}", filePath, e);
             return new HashMap<>();
         }
 
@@ -85,8 +91,8 @@ public class FeatureComparer {
     }
 
     private void printComparison(Map<String, Number> before, Map<String, Number> after) {
-        System.out.println("\n--- Step 9: Feature Comparison Result ---");
-        System.out.printf("%-25s | %-15s | %-15s%n", "Feature", "Before Refactor", "After Refactor");
+        log.info("--- Step 9: Feature Comparison Result ---");
+        log.info("{}", String.format(HEADER_FMT, "Feature", "Before Refactor", "After Refactor"));
 
         List<String> featureNames = Arrays.asList("LOC", "CyclomaticComplexity", "ParameterCount", "Duplication", "NR", "NAuth");
 
@@ -96,7 +102,7 @@ public class FeatureComparer {
             String afterValue = after.getOrDefault(feature, 0).toString();
 
             String marker = !beforeValue.equals(afterValue) ? " <-- CHANGED" : "";
-            System.out.printf("%-25s | %-15s | %-15s%s%n", feature, beforeValue, afterValue, marker);
+            log.info("{}", String.format(ROW_FMT, feature, beforeValue, afterValue, marker));
         }
     }
 }

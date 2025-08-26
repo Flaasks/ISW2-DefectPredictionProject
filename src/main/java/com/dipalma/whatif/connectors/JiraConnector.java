@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
+
 public class JiraConnector {
     private final String projectKey;
     private static final String JIRA_URL = "https://issues.apache.org/jira";

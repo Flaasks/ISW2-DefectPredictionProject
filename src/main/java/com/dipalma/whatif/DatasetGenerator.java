@@ -17,10 +17,15 @@ import java.time.LocalDate;
 import java.util.*;
 import java.util.stream.Collectors;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 public class DatasetGenerator {
 
     private final String projectKey;
     private final GitConnector git;
+
+    private static final Logger log = LoggerFactory.getLogger(DatasetGenerator.class);
 
     public DatasetGenerator(String projectKey, String gitUrl) {
         this.projectKey = projectKey;
@@ -39,7 +44,7 @@ public class DatasetGenerator {
             setVersionIndices(tickets, releases);
 
             double pMedian = calculateProportionCoefficient(tickets);
-            System.out.println("Calculated P-coefficient for " + projectKey + ": " + pMedian);
+            log.info("Calculated P-coefficient for {}: {}", projectKey, pMedian);
 
             Map<String, List<String>> bugToMethodsMap = git.getBugToMethodsMap(tickets);
 
@@ -57,11 +62,11 @@ public class DatasetGenerator {
 
             for (ProjectRelease release : releasesToAnalyze) {
                 if (!releaseCommits.containsKey(release.name())) {
-                    System.out.println("Skipping release " + release.name() + " as no matching Git tag was found.");
+                    log.info("Skipping release {} as no matching Git tag was found.", release.name());
                     continue;
                 }
 
-                System.out.println("Analyzing release: " + release.name());
+                log.info("Analyzing release: {}", release.name());
                 RevCommit releaseCommit = releaseCommits.get(release.name());
 
                 // This call now returns methods with all features already calculated.
@@ -142,7 +147,7 @@ public class DatasetGenerator {
                 return release.index();
             }
         }
-        return releases.isEmpty() ? -1 : releases.get(releases.size() - 1).index();
+        return releases.isEmpty() ? -1 : releases.getLast().index();
     }
     private double calculateProportionCoefficient(List<JiraTicket> tickets) {
         List<Double> pValues = new ArrayList<>();
@@ -167,6 +172,6 @@ public class DatasetGenerator {
              CSVPrinter printer = new CSVPrinter(out, CSVFormat.DEFAULT)) {
             printer.printRecords(data);
         }
-        System.out.println("Successfully created " + fileName);
+        log.info("Successfully created {}", fileName);
     }
 }

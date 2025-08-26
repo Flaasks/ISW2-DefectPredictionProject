@@ -18,11 +18,16 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 public class DataAnalyzer {
 
     private final String originalCsvPath;
     private final String processedCsvPath;
     private Instances data;
+    private static final Logger log = LoggerFactory.getLogger(DataAnalyzer.class);
+    private static final String RANK_ROW_FMT = "%-4d | %-7.4f | %s";
 
     public DataAnalyzer(String originalCsvPath, String processedCsvPath) {
         this.originalCsvPath = originalCsvPath;
@@ -43,7 +48,7 @@ public class DataAnalyzer {
             loadProcessedData();
         }
 
-        System.out.println("\n--- Step 4: Calculating Feature Correlation with Bugginess ---");
+        log.info("--- Step 4: Calculating Feature Correlation with Bugginess ---");
         AttributeSelection selector = new AttributeSelection();
         InfoGainAttributeEval evaluator = new InfoGainAttributeEval();
         Ranker search = new Ranker();
@@ -53,7 +58,7 @@ public class DataAnalyzer {
 
         // rankedAttributes() returns features from best to worst.
         double[][] rankedAttributes = selector.rankedAttributes();
-        System.out.println("Rank | Score   | Feature");
+        log.info("Rank | Score   | Feature");
 
         // *** THE FIX IS HERE ***
         // We use a simple counter variable for the rank instead of calling a non-existent method.
@@ -62,12 +67,12 @@ public class DataAnalyzer {
             // Weka returns an array where [0] is the attribute index and [1] is its score.
             int index = (int) rankedAttribute[0];
             double score = rankedAttribute[1];
-            System.out.printf("%-4d | %-7.4f | %s%n", rank, score, data.attribute(index).name());
+            log.debug("{}", String.format(RANK_ROW_FMT, rank, score, data.attribute(index).name()));
             rank++;
         }
 
 
-        System.out.println("\n--- Step 5: Identifying Top Actionable Feature (AFeature) ---");
+        log.info("--- Step 5: Identifying Top Actionable Feature (AFeature) ---");
         List<String> actionableFeatures = Arrays.asList("LOC", "CyclomaticComplexity", "ParameterCount", "Duplication");
         String aFeature = "";
         double highestScore = -1.0;
@@ -81,10 +86,9 @@ public class DataAnalyzer {
                 break; // Found the highest ranked actionable feature
             }
         }
-        System.out.println("Identified AFeature: " + aFeature + " (Score: " + String.format("%.4f", highestScore) + ")");
+        log.info("Identified AFeature: {} (Score: {})", aFeature, String.format("%.4f", highestScore));
 
-
-        System.out.println("\n--- Step 6: Identifying Target Method (AFMethod) ---");
+        log.info("--- Step 6: Identifying Target Method (AFMethod) ---");
         findHighImpactMethod(aFeature);
     }
 
@@ -94,7 +98,7 @@ public class DataAnalyzer {
         List<CSVRecord> records = parser.getRecords();
 
         if (records.isEmpty()) {
-            System.out.println("Dataset is empty, cannot find AFMethod.");
+            log.info("Dataset is empty, cannot find AFMethod.");
             return;
         }
 
@@ -107,11 +111,11 @@ public class DataAnalyzer {
 
         if (afMethodOpt.isPresent()) {
             CSVRecord afMethod = afMethodOpt.get();
-            System.out.println("Identified AFMethod (buggy method in last release with highest " + aFeature + "):");
-            System.out.println("  MethodName: " + afMethod.get("MethodName"));
-            System.out.println("  " + aFeature + " Value: " + afMethod.get(aFeature));
+            log.info("Identified AFMethod (buggy method in last release with highest {}):", aFeature);
+            log.info("  MethodName: {}", afMethod.get("MethodName"));
+            log.info("  {} Value: {}", aFeature, afMethod.get(aFeature));
         } else {
-            System.out.println("Could not find any buggy methods in the last release (" + lastRelease + ") to select AFMethod.");
+            log.warn("Could not find any buggy methods in the last release ({}) to select AFMethod.", lastRelease);
         }
     }
 }
