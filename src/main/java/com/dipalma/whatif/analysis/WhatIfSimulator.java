@@ -103,11 +103,13 @@ public class WhatIfSimulator {
         int defectsInC = countDefectivePredictions(trainedModel, datasetC);
 
         log.info("                      WHAT-IF ANALYSIS RESULTS                      ");
-        log.info("{}", String.format(TABLE_HEADER_FMT, "Dataset", "Total Instances", "Predicted Defects"));
-        log.info("{}", String.format(ROW_FMT_NO_NL, "A (Full Dataset)",  datasetA.numInstances(), defectsInA));
-        log.info("{}", String.format(ROW_FMT_NO_NL, "B+ (LOC > 1)",      datasetBplus.numInstances(), defectsInBplus));
-        log.info("{}", String.format(ROW_FMT_NO_NL, "B (B+ with LOC=1)", datasetB.numInstances(),    defectsInB));
-        log.info("{}", String.format(ROW_FMT_NO_NL, "C (LOC <= 1)",      datasetC.numInstances(),     defectsInC));
+        if (log.isInfoEnabled()) {
+            log.info("{}", String.format(TABLE_HEADER_FMT, "Dataset", "Total Instances", "Predicted Defects"));
+            log.info("{}", String.format(ROW_FMT_NO_NL, "A (Full Dataset)",  datasetA.numInstances(), defectsInA));
+            log.info("{}", String.format(ROW_FMT_NO_NL, "B+ (LOC > 1)",      datasetBplus.numInstances(), defectsInBplus));
+            log.info("{}", String.format(ROW_FMT_NO_NL, "B (B+ with LOC=1)", datasetB.numInstances(),    defectsInB));
+            log.info("{}", String.format(ROW_FMT_NO_NL, "C (LOC <= 1)",      datasetC.numInstances(),    defectsInC));
+        }
 
         // --- Step 13: Analyze the table and answer the main question ---
         log.info("--- Step 13: Final Analysis ---");
@@ -117,8 +119,10 @@ public class WhatIfSimulator {
 
             log.info("By simulating the reduction of LOC, the number of predicted buggy methods in the 'at-risk' group (B+) dropped from {} to {}.",
                     defectsInBplus, defectsInB);
-            log.info("This represents a {}% reduction among the methods that could be refactored.",
-                    String.format("%.2f", reductionOutOfPreventable));
+            if (log.isInfoEnabled()) {
+                String pct = String.format("%.2f", reductionOutOfPreventable);
+                log.info("This represents a {}% reduction among the methods that could be refactored.", pct);
+            }
             log.info("ANSWER: An estimated {} buggy methods could have been prevented by having low Lines of Code.",
                     Math.round(preventable));
         } else {
