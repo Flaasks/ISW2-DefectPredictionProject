@@ -21,6 +21,13 @@ public class DataPreprocessor {
     private final String inputFilePath;
     private final String outputFilePath;
 
+    private static final String RELEASE_ATTR = "Release";
+    private static final double OUTLIER_STD_MULTIPLIER = 3.0;
+
+    private record Bounds(int attrIndex, double lower, double upper) {
+    }
+
+
     public DataPreprocessor(String inputFilePath) {
         this.inputFilePath = inputFilePath;
         this.outputFilePath = inputFilePath.replace(".csv", "_processed.csv");
@@ -99,44 +106,82 @@ public class DataPreprocessor {
         return loader.getDataSet();
     }
 
-    private Instances removeOutliers(Instances data) {
-        Instances filteredData = new Instances(data);
-        filteredData.delete(); // Start with an empty structure
-
-        List<Integer> numericAttrIndices = new ArrayList<>();
+    private static List<Integer> getNumericAttrIndices(Instances data) {
+        List<Integer> indices = new ArrayList<>();
         for (int i = 0; i < data.numAttributes(); i++) {
-            if (data.attribute(i).isNumeric() && !data.attribute(i).name().equalsIgnoreCase("Release")) {
-                numericAttrIndices.add(i);
+            Attribute attr = data.attribute(i);
+            if (attr.isNumeric() && !RELEASE_ATTR.equalsIgnoreCase(attr.name())) {
+                indices.add(i);
             }
+        }
+        return indices;
+    }
+
+    private static List<Bounds> computeBoundsList(Instances data, List<Integer> attrIndices) {
+        List<Bounds> list = new ArrayList<>();
+        for (int attrIndex : attrIndices) {
+            DescriptiveStatistics stats = new DescriptiveStatistics();
+            for (int r = 0; r < data.numInstances(); r++) {
+                stats.addValue(data.instance(r).value(attrIndex));
+            }
+            double std = stats.getStandardDeviation();
+            if (std == 0.0 || Double.isNaN(std)) {
+                continue; // colonna costante -> nessun outlier secondo 3σ
+            }
+            double mean = stats.getMean();
+            double delta = OUTLIER_STD_MULTIPLIER * std;
+            list.add(new Bounds(attrIndex, mean - delta, mean + delta));
+        }
+        return list;
+    }
+
+    private static boolean isOutlierInstance(Instances data, int rowIndex, List<Bounds> boundsList) {
+        for (Bounds b : boundsList) {
+            double v = data.instance(rowIndex).value(b.attrIndex);
+            if (v < b.lower || v > b.upper) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+
+    private Instances removeOutliers(Instances data) {
+        // copia la struttura, poi svuota (come prima)
+        Instances filtered = new Instances(data);
+        filtered.delete();
+
+        if (data.numInstances() == 0 || data.numAttributes() == 0) {
+            return filtered;
+        }
+
+        List<Integer> numericAttrIndices = getNumericAttrIndices(data);
+        if (numericAttrIndices.isEmpty()) {
+            // nessun attributo numerico (eccetto "Release") -> ritorna i dati originali
+            return new Instances(data);
+        }
+
+        List<Bounds> boundsList = computeBoundsList(data, numericAttrIndices);
+        if (boundsList.isEmpty()) {
+            // tutte colonne costanti (std=0) -> nessun outlier secondo 3σ
+            return new Instances(data);
         }
 
         boolean[] toRemove = new boolean[data.numInstances()];
-        for (int attrIndex : numericAttrIndices) {
-            DescriptiveStatistics stats = new DescriptiveStatistics();
-            data.forEach(instance -> stats.addValue(instance.value(attrIndex)));
-            double mean = stats.getMean();
-            double stdDev = stats.getStandardDeviation();
-            if (stdDev == 0) continue;
-            double lowerBound = mean - (3 * stdDev);
-            double upperBound = mean + (3 * stdDev);
-
-            for(int i = 0; i < data.numInstances(); i++){
-                if(!toRemove[i]){ // Don't re-check rows already marked for removal
-                    double value = data.instance(i).value(attrIndex);
-                    if(value < lowerBound || value > upperBound){
-                        toRemove[i] = true;
-                    }
-                }
+        for (int i = 0; i < data.numInstances(); i++) {
+            if (isOutlierInstance(data, i, boundsList)) {
+                toRemove[i] = true;
             }
         }
 
-        for(int i = 0; i < data.numInstances(); i++){
-            if(!toRemove[i]){
-                filteredData.add(data.instance(i));
+        for (int i = 0; i < data.numInstances(); i++) {
+            if (!toRemove[i]) {
+                filtered.add(data.instance(i));
             }
         }
-        return filteredData;
+        return filtered;
     }
+
 
     private Instances removeConstantAttributes(Instances data) throws Exception {
         List<Integer> constantAttrIndices = new ArrayList<>();
