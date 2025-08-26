@@ -1,0 +1,214 @@
+//this file contains the whole context about the refactored method
+
+import org.apache.commons.cli.*;
+import java.util.Arrays;
+import java.util.Timer;
+import java.util.TimerTask;
+
+public class BenchThroughputLatencyApp {
+
+    public static void main(String[] args) {
+        Options options = buildOptions();
+        CommandLineParser parser = new PosixParser();
+
+        try {
+            CommandLine cmd = parser.parse(options, args);
+            if (cmd.hasOption("help")) {
+                new HelpFormatter().printHelp("BenchThroughputLatency <options>", options);
+                return;
+            }
+
+            BenchmarkConfig config = new BenchmarkConfig(cmd);
+            setupTimeout(config);
+
+            // The main logic is now clearly orchestrated.
+            runBenchmark(config);
+
+        } catch (Exception e) {
+            LOG.error("Benchmark failed with an exception", e);
+            System.exit(1);
+        }
+    }
+
+    private static void runBenchmark(BenchmarkConfig config) throws Exception {
+        // Use try-with-resources for the coordinator to ensure it's closed.
+        try (BenchmarkCoordinator coordinator = new BenchmarkCoordinator(config.getZooKeeperServers(), config.getCoordinationZnode())) {
+
+            // 1. Warm up if necessary
+            if (!config.isSkipWarmup()) {
+                performWarmup(config);
+            }
+
+            // 2. Wait for the green light from ZooKeeper
+            coordinator.awaitStartSignal();
+
+            // 3. Run the actual benchmark
+            BenchThroughputLatency bench = new BenchThroughputLatency(/* ... construct with config ... */);
+            byte[] data = new byte[config.getEntrySize()];
+            Arrays.fill(data, (byte) 'x');
+            bench.setEntryData(data);
+
+            Thread benchThread = new Thread(bench);
+            benchThread.start();
+            Thread.sleep(config.getRunningTimeSec() * 1000);
+            benchThread.interrupt();
+            benchThread.join();
+
+            // 4. Process and report results
+            processAndReportResults(bench, coordinator);
+        }
+    }
+
+    private static void processAndReportResults(BenchThroughputLatency bench, BenchmarkCoordinator coordinator) throws Exception {
+         // This logic for processing latencies and calculating throughput would be extracted
+         // from the original main method and placed here.
+
+         LOG.info("Calculating percentiles...");
+         // ... (latency calculation logic) ...
+         long throughput = (long)((double)(numCompletions*1000.0)/(double)bench.getDuration());
+
+         LOG.info(numCompletions + " completions in " + bench.getDuration() + " seconds: " + throughput + " ops/sec");
+
+         // Post results back to ZK
+         coordinator.postResults(throughput, bench.getDuration());
+
+         // ... (dump latency file, print percentiles, etc.) ...
+         bench.close();
+    }
+
+    private static void performWarmup(BenchmarkConfig config) throws Exception {
+        LOG.info("Starting warmup...");
+        // Warmup logic extracted from the original source
+        // long throughput = warmUp(...);
+        LOG.info("Warmup finished. Throughput: " + throughput);
+    }
+
+    private static void setupTimeout(BenchmarkConfig config) {
+        if (config.getOverallTimeoutSec() > 0) {
+            Timer timeouter = new Timer("Benchmark-Timeout", true);
+            timeouter.schedule(new TimerTask() {
+                @Override
+                public void run() {
+                    System.err.println("Benchmark timed out after " + config.getOverallTimeoutSec() + " seconds. Exiting.");
+                    System.exit(1);
+                }
+            }, config.getOverallTimeoutSec() * 1000);
+        }
+    }
+
+    private static Options buildOptions() {
+        // The original options.addOption(...) calls would go here.
+        Options options = new Options();
+        options.addOption("time", true, "Running time (seconds), default 60");
+        // ... all other options
+        options.addOption("help", false, "This message");
+        return options;
+    }
+}
+
+import org.apache.zookeeper.*;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+
+// Handles all ZooKeeper-related interactions for coordinating distributed benchmarks.
+public class BenchmarkCoordinator implements AutoCloseable {
+
+    private final String servers;
+    private final String coordinationZnode;
+    private ZooKeeper zk;
+
+    public BenchmarkCoordinator(String servers, String znode) {
+        this.servers = servers;
+        this.coordinationZnode = znode;
+    }
+
+    public void awaitStartSignal() throws Exception {
+        if (coordinationZnode == null) {
+            return;
+        }
+
+        final CountDownLatch connectLatch = new CountDownLatch(1);
+        this.zk = new ZooKeeper(servers, 15000, e -> {
+            if (e.getState() == Watcher.Event.KeeperState.SyncConnected) {
+                connectLatch.countDown();
+            }
+        });
+
+        if (!connectLatch.await(10, TimeUnit.SECONDS)) {
+            throw new RuntimeException("Could not connect to ZooKeeper at " + servers);
+        }
+
+        LOG.info("Waiting for coordination znode: " + coordinationZnode);
+        final CountDownLatch startLatch = new CountDownLatch(1);
+        if (zk.exists(coordinationZnode, e -> {
+            if (e.getType() == Watcher.Event.EventType.NodeCreated) {
+                startLatch.countDown();
+            }
+        }) != null) {
+            startLatch.countDown();
+        }
+
+        startLatch.await();
+        LOG.info("Coordination znode created. Starting benchmark.");
+    }
+
+    public void postResults(long throughput, long duration) throws Exception {
+        if (zk != null && coordinationZnode != null) {
+            String resultPath = coordinationZnode + "/worker-";
+            byte[] data = ("tp " + throughput + " duration " + duration).getBytes();
+            zk.create(resultPath, data, ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT_SEQUENTIAL);
+        }
+    }
+
+    @Override
+    public void close() throws Exception {
+        if (zk != null) {
+            zk.close();
+        }
+    }
+}
+
+import org.apache.commons.cli.CommandLine;
+
+// Encapsulates all benchmark parameters parsed from the command line.
+public class BenchmarkConfig {
+
+    private final long runningTimeSec;
+    private final int entrySize;
+    private final int ensembleSize;
+    private final int quorumSize;
+    private final int ackQuorumSize;
+    private final int throttle;
+    private final int numLedgers;
+    private final int sendLimit;
+    private final int socketTimeoutSec;
+    private final long overallTimeoutSec;
+    private final String zooKeeperServers;
+    private final String coordinationZnode;
+    private final byte[] ledgerPassword;
+    private final String latencyFile;
+    private final boolean skipWarmup;
+
+    public BenchmarkConfig(CommandLine cmd) {
+        this.runningTimeSec = Long.parseLong(cmd.getOptionValue("time", "60"));
+        this.entrySize = Integer.parseInt(cmd.getOptionValue("entrysize", "1024"));
+        this.ensembleSize = Integer.parseInt(cmd.getOptionValue("ensemble", "3"));
+        this.quorumSize = Integer.parseInt(cmd.getOptionValue("quorum", "2"));
+        this.ackQuorumSize = Integer.parseInt(cmd.getOptionValue("ackQuorum", String.valueOf(this.quorumSize)));
+        this.throttle = Integer.parseInt(cmd.getOptionValue("throttle", "10000"));
+        this.numLedgers = Integer.parseInt(cmd.getOptionValue("ledgers", "1"));
+        this.sendLimit = Integer.parseInt(cmd.getOptionValue("sendlimit", "20000000"));
+        this.socketTimeoutSec = Integer.parseInt(cmd.getOptionValue("sockettimeout", "5"));
+        this.overallTimeoutSec = Long.parseLong(cmd.getOptionValue("timeout", "360"));
+        this.zooKeeperServers = cmd.getOptionValue("zookeeper", "localhost:2181");
+        this.coordinationZnode = cmd.getOptionValue("coordnode");
+        this.ledgerPassword = cmd.getOptionValue("password", "benchPasswd").getBytes();
+        this.latencyFile = cmd.getOptionValue("latencyFile", "latencyDump.dat");
+        this.skipWarmup = cmd.hasOption("skipwarmup");
+    }
+
+    // Add getters for all private fields, e.g., getRunningTimeSec(), getEntrySize(), etc.
+    public long getRunningTimeSec() { return runningTimeSec; }
+    public int getEntrySize() { return entrySize; }
+    public String getCoordinationZnode() { return coordinationZnode; }
+}

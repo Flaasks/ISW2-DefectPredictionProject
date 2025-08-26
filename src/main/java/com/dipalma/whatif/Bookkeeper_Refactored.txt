@@ -1,0 +1,21 @@
+    public static void main(String[] args) {
+        Options options = buildOptions();
+        CommandLineParser parser = new PosixParser();
+
+        try {
+            CommandLine cmd = parser.parse(options, args);
+            if (cmd.hasOption("help")) {
+                new HelpFormatter().printHelp("BenchThroughputLatency <options>", options);
+                return;
+            }
+
+            BenchmarkConfig config = new BenchmarkConfig(cmd);
+            setupTimeout(config);
+
+            runBenchmark(config);
+
+        } catch (Exception e) {
+            LOG.error("Benchmark failed with an exception", e);
+            System.exit(1);
+        }
+    }

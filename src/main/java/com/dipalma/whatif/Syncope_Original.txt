@@ -1,0 +1,76 @@
+public boolean isValid(final SyncopeUser user, final ConstraintValidatorContext context) {
+        context.disableDefaultConstraintViolation();
+
+        // ------------------------------
+        // Verify password policies
+        // ------------------------------
+        LOG.debug("Password Policy enforcement");
+
+        try {
+            int maxPPSpecHistory = 0;
+            for (Policy policy : getPasswordPolicies(user)) {
+                // evaluate policy
+                final PasswordPolicySpec ppSpec = evaluator.evaluate(policy, user);
+                // enforce policy
+                ppEnforcer.enforce(ppSpec, policy.getType(), user);
+
+                if (ppSpec.getHistoryLength() > maxPPSpecHistory) {
+                    maxPPSpecHistory = ppSpec.getHistoryLength();
+                }
+            }
+
+            // update user's password history with encrypted password
+            if (maxPPSpecHistory > 0 && user.getPassword() != null) {
+                user.getPasswordHistory().add(user.getPassword());
+            }
+            // keep only the last maxPPSpecHistory items in user's password history
+            if (maxPPSpecHistory < user.getPasswordHistory().size()) {
+                for (int i = 0; i < user.getPasswordHistory().size() - maxPPSpecHistory; i++) {
+                    user.getPasswordHistory().remove(i);
+                }
+            }
+        } catch (Exception e) {
+            LOG.debug("Invalid password");
+
+            context.buildConstraintViolationWithTemplate(
+                    getTemplate(EntityViolationType.InvalidPassword, e.getMessage())).
+                    addPropertyNode("password").addConstraintViolation();
+
+            return false;
+        } finally {
+            // password has been validated, let's remove its clear version
+            user.removeClearPassword();
+        }
+        // ------------------------------
+
+        // ------------------------------
+        // Verify account policies
+        // ------------------------------
+        LOG.debug("Account Policy enforcement");
+
+        try {
+            if (adminUser.equals(user.getUsername()) || anonymousUser.equals(user.getUsername())) {
+                throw new AccountPolicyException("Not allowed: " + user.getUsername());
+            }
+
+            // invalid username
+            for (Policy policy : getAccountPolicies(user)) {
+                // evaluate policy
+                final AccountPolicySpec accountPolicy = evaluator.evaluate(policy, user);
+
+                // enforce policy
+                apEnforcer.enforce(accountPolicy, policy.getType(), user);
+            }
+        } catch (Exception e) {
+            LOG.debug("Invalid username");
+
+            context.buildConstraintViolationWithTemplate(
+                    getTemplate(EntityViolationType.InvalidUsername, e.getMessage())).
+                    addPropertyNode("username").addConstraintViolation();
+
+            return false;
+        }
+        // ------------------------------
+
+        return true;
+    }
