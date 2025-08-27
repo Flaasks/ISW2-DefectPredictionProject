@@ -16,10 +16,21 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 public class DataPreprocessor {
 
     private final String inputFilePath;
     private final String outputFilePath;
+
+    private static final Logger log = LoggerFactory.getLogger(DataPreprocessor.class);
+
+    private static final String RELEASE_ATTR = "Release";
+    private static final double OUTLIER_STD_MULTIPLIER = 3.0;
+
+    private record Bounds(double lower, double upper) {
+    }
 
     public DataPreprocessor(String inputFilePath) {
         this.inputFilePath = inputFilePath;
@@ -32,31 +43,31 @@ public class DataPreprocessor {
         if (data.classIndex() == -1) {
             data.setClassIndex(data.numAttributes() - 1);
         }
-        System.out.println("Original data shape: " + data.numInstances() + " rows, " + data.numAttributes() + " attributes.");
+        log.info("Original data shape: {} rows, {} attributes.", data.numInstances(), data.numAttributes());
 
         // 2. Sanitize
         Instances sanitizedData = sanitizeData(data);
-        System.out.println("Data sanitized.");
+        log.info("Data sanitized.");
 
         // 3. Remove outliers
         Instances dataWithoutOutliers = removeOutliers(sanitizedData);
-        System.out.println("Data shape after outlier removal: " + dataWithoutOutliers.numInstances() + " rows.");
+        log.info("Data shape after outlier removal: {} rows.", dataWithoutOutliers.numInstances());
 
         // 4. Remove constant numeric features
         Instances dataWithoutUseless = removeConstantAttributes(dataWithoutOutliers);
-        System.out.println("Data shape after removing useless attributes: " + dataWithoutUseless.numInstances() + " rows.");
+        log.info("Data shape after removing useless attributes: {} rows.", dataWithoutUseless.numInstances());
 
         // 5. Scale the data
         Instances scaledData = scaleData(dataWithoutUseless);
-        System.out.println("Data successfully scaled.");
+        log.info("Data successfully scaled.");
 
         // 6. *** NEW AND FINAL STEP: Remove identifier columns ***
         Instances finalData = removeIdentifierColumns(scaledData);
-        System.out.println("Identifier columns removed. Final data has " + finalData.numAttributes() + " attributes.");
+        log.info("Identifier columns removed. Final data has {} attributes.", finalData.numAttributes());
 
         // 7. Save the final, clean data
         saveToCsv(finalData, this.outputFilePath);
-        System.out.println("Processed data saved to: " + this.outputFilePath);
+        log.info("Processed data saved to: {}", this.outputFilePath);
     }
 
     private Instances removeIdentifierColumns(Instances data) throws Exception {
@@ -99,44 +110,73 @@ public class DataPreprocessor {
         return loader.getDataSet();
     }
 
+    // --- metodo rifattorizzato ---
     private Instances removeOutliers(Instances data) {
+        // stessa struttura iniziale: copia intestazione e svuota
         Instances filteredData = new Instances(data);
-        filteredData.delete(); // Start with an empty structure
+        filteredData.delete();
 
-        List<Integer> numericAttrIndices = new ArrayList<>();
-        for (int i = 0; i < data.numAttributes(); i++) {
-            if (data.attribute(i).isNumeric() && !data.attribute(i).name().equalsIgnoreCase("Release")) {
-                numericAttrIndices.add(i);
-            }
-        }
+        // individua attributi numerici (escludendo "Release")
+        List<Integer> numericAttrIndices = getNumericAttrIndices(data);
 
         boolean[] toRemove = new boolean[data.numInstances()];
         for (int attrIndex : numericAttrIndices) {
-            DescriptiveStatistics stats = new DescriptiveStatistics();
-            data.forEach(instance -> stats.addValue(instance.value(attrIndex)));
-            double mean = stats.getMean();
-            double stdDev = stats.getStandardDeviation();
-            if (stdDev == 0) continue;
-            double lowerBound = mean - (3 * stdDev);
-            double upperBound = mean + (3 * stdDev);
+            Bounds b = computeBounds(data, attrIndex);
+            if (b != null) { // std=0 (o NaN) => nessun outlier per quell'attributo
+                markOutliersForAttr(data, attrIndex, b, toRemove);
+            }
+        }
 
-            for(int i = 0; i < data.numInstances(); i++){
-                if(!toRemove[i]){ // Don't re-check rows already marked for removal
-                    double value = data.instance(i).value(attrIndex);
-                    if(value < lowerBound || value > upperBound){
-                        toRemove[i] = true;
-                    }
+        copyNonRemovedInstances(data, filteredData, toRemove);
+        return filteredData;
+    }
+
+    // --- helper ---
+    private static List<Integer> getNumericAttrIndices(Instances data) {
+        List<Integer> indices = new ArrayList<>();
+        for (int i = 0; i < data.numAttributes(); i++) {
+            Attribute attr = data.attribute(i);
+            if (attr.isNumeric() && !RELEASE_ATTR.equalsIgnoreCase(attr.name())) {
+                indices.add(i);
+            }
+        }
+        return indices;
+    }
+
+    private static Bounds computeBounds(Instances data, int attrIndex) {
+        DescriptiveStatistics stats = new DescriptiveStatistics();
+        for (int r = 0; r < data.numInstances(); r++) {
+            stats.addValue(data.instance(r).value(attrIndex));
+        }
+        double std = stats.getStandardDeviation();
+        if (std == 0.0 || Double.isNaN(std)) {
+            return null; // colonna costante o non valutabile: nessun outlier
+        }
+        double mean = stats.getMean();
+        double delta = OUTLIER_STD_MULTIPLIER * std;
+        return new Bounds(mean - delta, mean + delta);
+    }
+
+    private static void markOutliersForAttr(Instances data, int attrIndex, Bounds b, boolean[] toRemove) {
+        for (int i = 0; i < data.numInstances(); i++) {
+            if (!toRemove[i]) { // non ricontrollare righe già marcate
+                double v = data.instance(i).value(attrIndex);
+                if (v < b.lower || v > b.upper) {
+                    toRemove[i] = true;
                 }
             }
         }
+    }
 
-        for(int i = 0; i < data.numInstances(); i++){
-            if(!toRemove[i]){
-                filteredData.add(data.instance(i));
+    private static void copyNonRemovedInstances(Instances data, Instances target, boolean[] toRemove) {
+        for (int i = 0; i < data.numInstances(); i++) {
+            if (!toRemove[i]) {
+                target.add(data.instance(i));
             }
         }
-        return filteredData;
     }
+
+
 
     private Instances removeConstantAttributes(Instances data) throws Exception {
         List<Integer> constantAttrIndices = new ArrayList<>();
@@ -160,7 +200,7 @@ public class DataPreprocessor {
                 // If, after checking all rows, there's only 1 unique value, the column is constant
                 if (uniqueValues.size() <= 1) {
                     constantAttrIndices.add(i);
-                    System.out.println("Marking constant attribute for removal: " + attribute.name());
+                    log.info("Marking constant attribute for removal: {}", attribute.name());
                 }
             }
         }
