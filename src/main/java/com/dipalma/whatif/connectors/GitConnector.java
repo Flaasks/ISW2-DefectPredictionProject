@@ -68,23 +68,28 @@ public class GitConnector {
         log.info("Mapping bug fixes to specific methods...");
         Map<String, List<String>> bugToMethods = new HashMap<>();
         try (RevWalk revWalk = new RevWalk(repository)) {
+
             for (JiraTicket ticket : tickets) {
-                if (ticket.getFixCommitHash() == null) continue;
-
-                RevCommit commit = revWalk.parseCommit(repository.resolve(ticket.getFixCommitHash()));
-                if (commit.getParentCount() == 0) continue;
-                RevCommit parent = revWalk.parseCommit(commit.getParent(0).getId());
-
-                List<DiffEntry> diffs = getDiff(parent, commit);
-                List<String> affectedMethods = new ArrayList<>();
-
-                for (DiffEntry diff : diffs) {
-                    if (diff.getChangeType() == DiffEntry.ChangeType.MODIFY && diff.getNewPath().endsWith(".java")) {
-                        // *** FIX IS HERE: No longer passing the unused 'parent' parameter ***
-                        affectedMethods.addAll(getModifiedMethods(diff, commit));
-                    }
+                String fixHash = ticket.getFixCommitHash();
+                if (fixHash == null) {
+                    continue;
                 }
-                bugToMethods.put(ticket.getKey(), affectedMethods);
+                RevCommit commit = revWalk.parseCommit(repository.resolve(fixHash));
+                if (commit.getParentCount() > 0) {
+                    RevCommit parent = revWalk.parseCommit(commit.getParent(0).getId());
+
+                    List<DiffEntry> diffs = getDiff(parent, commit);
+                    List<String> affectedMethods = new ArrayList<>();
+
+                    for (DiffEntry diff : diffs) {
+                        if (diff.getChangeType() == DiffEntry.ChangeType.MODIFY
+                                && diff.getNewPath().endsWith(".java")) {
+                            affectedMethods.addAll(getModifiedMethods(diff, commit));
+                        }
+                    }
+
+                    bugToMethods.put(ticket.getKey(), affectedMethods);
+                }
             }
         }
         log.info("Finished mapping bugs to methods.");
