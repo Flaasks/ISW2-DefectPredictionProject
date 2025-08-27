@@ -107,7 +107,7 @@ public class WhatIfSimulator {
             log.info("{}", String.format(TABLE_HEADER_FMT, "Dataset", "Total Instances", "Predicted Defects"));
             log.info("{}", String.format(ROW_FMT_NO_NL, "A (Full Dataset)",  datasetA.numInstances(), defectsInA));
             log.info("{}", String.format(ROW_FMT_NO_NL, "B+ (LOC > 1)",      datasetBplus.numInstances(), defectsInBplus));
-            log.info("{}", String.format(ROW_FMT_NO_NL, "B (B+ with LOC=1)", datasetB.numInstances(),    defectsInB));
+            log.info("{}", String.format(ROW_FMT_NO_NL, "B (B+ with LOC=1)", datasetB.numInstances(), (int)Math.round(defectsInB)));
             log.info("{}", String.format(ROW_FMT_NO_NL, "C (LOC <= 1)",      datasetC.numInstances(),    defectsInC));
         }
 
