@@ -181,46 +181,48 @@ public class DataPreprocessor {
     private Instances removeConstantAttributes(Instances data) throws Exception {
         List<Integer> constantAttrIndices = new ArrayList<>();
 
-        // Loop through all attributes to find which ones are constant
         for (int i = 0; i < data.numAttributes(); i++) {
-            Attribute attribute = data.attribute(i);
+            if (isNumericNonClass(data, i) && hasAtMostOneUniqueValue(data, i)) {
+                constantAttrIndices.add(i);
 
-            // We only consider numeric attributes that are NOT the class attribute
-            if (attribute.isNumeric() && i != data.classIndex()) {
-                // Use a Set to find the number of unique values in the column
-                Set<Double> uniqueValues = new HashSet<>();
-                for (int j = 0; j < data.numInstances(); j++) {
-                    uniqueValues.add(data.instance(j).value(i));
-                    // If we find more than one unique value, we can stop checking this column
-                    if (uniqueValues.size() > 1) {
-                        break;
-                    }
-                }
-
-                // If, after checking all rows, there's only 1 unique value, the column is constant
-                if (uniqueValues.size() <= 1) {
-                    constantAttrIndices.add(i);
-
-                    if (log.isInfoEnabled()) {
-                        final String attrName = attribute.name();
-                        log.info("Marking constant attribute for removal: {}", attrName);
-                    }
-                }
+                final int idx = i; // per lambda effectively-final
+                log.atInfo()
+                        .setMessage("Marking constant attribute for removal: {}")
+                        .addArgument(() -> data.attribute(idx).name())
+                        .log();
             }
         }
 
         if (constantAttrIndices.isEmpty()) {
-            return data; // No attributes to remove
+            return data; // nessun attributo da rimuovere
         }
 
-        // Use the simple 'Remove' filter to delete the identified columns
         Remove removeFilter = new Remove();
-        int[] indicesToRemove = constantAttrIndices.stream().mapToInt(i -> i).toArray();
-        removeFilter.setAttributeIndicesArray(indicesToRemove);
+        removeFilter.setAttributeIndicesArray(
+                constantAttrIndices.stream().mapToInt(Integer::intValue).toArray()
+        );
         removeFilter.setInputFormat(data);
 
         return Filter.useFilter(data, removeFilter);
     }
+
+    // === Helper privati (stessa classe) ===
+    private static boolean isNumericNonClass(Instances data, int index) {
+        Attribute attr = data.attribute(index);
+        return attr.isNumeric() && index != data.classIndex();
+    }
+
+    private static boolean hasAtMostOneUniqueValue(Instances data, int attrIndex) {
+        Set<Double> unique = new HashSet<>();
+        for (int r = 0; r < data.numInstances(); r++) {
+            unique.add(data.instance(r).value(attrIndex));
+            if (unique.size() > 1) {
+                return false; // appena trovi 2 valori diversi, NON è costante
+            }
+        }
+        return true; // 0 o 1 valore distinto → costante
+    }
+
 
     private Instances scaleData(Instances data) throws Exception {
         Standardize filter = new Standardize();

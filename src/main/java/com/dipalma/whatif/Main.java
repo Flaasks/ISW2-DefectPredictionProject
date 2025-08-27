@@ -66,6 +66,7 @@ public class Main {
 
             log.info("--- CLASSIFIER EVALUATION COMPLETE ---");
 
+
             FeatureComparer comparer = new FeatureComparer();
 
             log.info("--- METHOD COMPARING COMPLETE ---");
