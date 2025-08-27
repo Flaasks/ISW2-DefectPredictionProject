@@ -2,7 +2,6 @@ package com.dipalma.whatif.preprocessing;
 
 
 import weka.core.Attribute;
-import weka.core.Instance;
 import weka.core.Instances;
 import weka.core.converters.CSVLoader;
 import weka.core.converters.CSVSaver;
@@ -13,25 +12,14 @@ import org.apache.commons.math3.stat.descriptive.DescriptiveStatistics;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
-import java.util.Objects;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import java.util.Set;
 
 public class DataPreprocessor {
 
     private final String inputFilePath;
     private final String outputFilePath;
-
-    private static final Logger log = LoggerFactory.getLogger(DataPreprocessor.class);
-
-    private static final String RELEASE_ATTR = "Release";
-    private static final double OUTLIER_STD_MULTIPLIER = 3.0;
-
-    private record Bounds(int attrIndex, double lower, double upper) {
-    }
-
 
     public DataPreprocessor(String inputFilePath) {
         this.inputFilePath = inputFilePath;
@@ -44,31 +32,31 @@ public class DataPreprocessor {
         if (data.classIndex() == -1) {
             data.setClassIndex(data.numAttributes() - 1);
         }
-        log.info("Original data shape: {} rows, {} attributes.", data.numInstances(), data.numAttributes());
+        System.out.println("Original data shape: " + data.numInstances() + " rows, " + data.numAttributes() + " attributes.");
 
         // 2. Sanitize
         Instances sanitizedData = sanitizeData(data);
-        log.info("Data sanitized.");
+        System.out.println("Data sanitized.");
 
         // 3. Remove outliers
         Instances dataWithoutOutliers = removeOutliers(sanitizedData);
-        log.info("Data shape after outlier removal: {} rows.", dataWithoutOutliers.numInstances());
+        System.out.println("Data shape after outlier removal: " + dataWithoutOutliers.numInstances() + " rows.");
 
         // 4. Remove constant numeric features
         Instances dataWithoutUseless = removeConstantAttributes(dataWithoutOutliers);
-        log.info("Data shape after removing useless attributes: {} rows.", dataWithoutUseless.numInstances());
+        System.out.println("Data shape after removing useless attributes: " + dataWithoutUseless.numInstances() + " rows.");
 
         // 5. Scale the data
         Instances scaledData = scaleData(dataWithoutUseless);
-        log.info("Data successfully scaled.");
+        System.out.println("Data successfully scaled.");
 
         // 6. *** NEW AND FINAL STEP: Remove identifier columns ***
         Instances finalData = removeIdentifierColumns(scaledData);
-        log.info("Identifier columns removed. Final data has {} attributes.", finalData.numAttributes());
+        System.out.println("Identifier columns removed. Final data has " + finalData.numAttributes() + " attributes.");
 
         // 7. Save the final, clean data
         saveToCsv(finalData, this.outputFilePath);
-        log.info("Processed data saved to: {}", this.outputFilePath);
+        System.out.println("Processed data saved to: " + this.outputFilePath);
     }
 
     private Instances removeIdentifierColumns(Instances data) throws Exception {
@@ -111,150 +99,84 @@ public class DataPreprocessor {
         return loader.getDataSet();
     }
 
-    private static List<Integer> getNumericAttrIndices(Instances data) {
-        List<Integer> indices = new ArrayList<>();
-        for (int i = 0; i < data.numAttributes(); i++) {
-            Attribute attr = data.attribute(i);
-            if (attr.isNumeric() && !RELEASE_ATTR.equalsIgnoreCase(attr.name())) {
-                indices.add(i);
-            }
-        }
-        return indices;
-    }
-
-    private static List<Bounds> computeBoundsList(Instances data, List<Integer> attrIndices) {
-        List<Bounds> list = new ArrayList<>();
-        for (int attrIndex : attrIndices) {
-            DescriptiveStatistics stats = new DescriptiveStatistics();
-            for (int r = 0; r < data.numInstances(); r++) {
-                stats.addValue(data.instance(r).value(attrIndex));
-            }
-            double std = stats.getStandardDeviation();
-            if (std == 0.0 || Double.isNaN(std)) {
-                continue; // colonna costante -> nessun outlier secondo 3σ
-            }
-            double mean = stats.getMean();
-            double delta = OUTLIER_STD_MULTIPLIER * std;
-            list.add(new Bounds(attrIndex, mean - delta, mean + delta));
-        }
-        return list;
-    }
-
-    private static boolean isOutlierInstance(Instances data, int rowIndex, List<Bounds> boundsList) {
-        for (Bounds b : boundsList) {
-            double v = data.instance(rowIndex).value(b.attrIndex);
-            if (v < b.lower || v > b.upper) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-
     private Instances removeOutliers(Instances data) {
-        // copia la struttura, poi svuota (come prima)
-        Instances filtered = new Instances(data);
-        filtered.delete();
+        Instances filteredData = new Instances(data);
+        filteredData.delete(); // Start with an empty structure
 
-        if (data.numInstances() == 0 || data.numAttributes() == 0) {
-            return filtered;
-        }
-
-        List<Integer> numericAttrIndices = getNumericAttrIndices(data);
-        if (numericAttrIndices.isEmpty()) {
-            // nessun attributo numerico (eccetto "Release") -> ritorna i dati originali
-            return new Instances(data);
-        }
-
-        List<Bounds> boundsList = computeBoundsList(data, numericAttrIndices);
-        if (boundsList.isEmpty()) {
-            // tutte colonne costanti (std=0) -> nessun outlier secondo 3σ
-            return new Instances(data);
+        List<Integer> numericAttrIndices = new ArrayList<>();
+        for (int i = 0; i < data.numAttributes(); i++) {
+            if (data.attribute(i).isNumeric() && !data.attribute(i).name().equalsIgnoreCase("Release")) {
+                numericAttrIndices.add(i);
+            }
         }
 
         boolean[] toRemove = new boolean[data.numInstances()];
-        for (int i = 0; i < data.numInstances(); i++) {
-            if (isOutlierInstance(data, i, boundsList)) {
-                toRemove[i] = true;
+        for (int attrIndex : numericAttrIndices) {
+            DescriptiveStatistics stats = new DescriptiveStatistics();
+            data.forEach(instance -> stats.addValue(instance.value(attrIndex)));
+            double mean = stats.getMean();
+            double stdDev = stats.getStandardDeviation();
+            if (stdDev == 0) continue;
+            double lowerBound = mean - (3 * stdDev);
+            double upperBound = mean + (3 * stdDev);
+
+            for(int i = 0; i < data.numInstances(); i++){
+                if(!toRemove[i]){ // Don't re-check rows already marked for removal
+                    double value = data.instance(i).value(attrIndex);
+                    if(value < lowerBound || value > upperBound){
+                        toRemove[i] = true;
+                    }
+                }
             }
         }
 
-        for (int i = 0; i < data.numInstances(); i++) {
-            if (!toRemove[i]) {
-                filtered.add(data.instance(i));
+        for(int i = 0; i < data.numInstances(); i++){
+            if(!toRemove[i]){
+                filteredData.add(data.instance(i));
             }
         }
-        return filtered;
+        return filteredData;
     }
-
-
-    /** Ritorna true se l'attributo ha lo stesso valore (o tutti missing) su tutte le istanze. */
-    private static boolean isConstantAcrossInstances(Instances data, int attrIndex) {
-        Double first = null;
-        for (int r = 0; r < data.numInstances(); r++) {
-            Instance inst = data.instance(r);
-            if (inst.isMissing(attrIndex)) {
-                continue; // ignora missing
-            }
-            double v = inst.value(attrIndex);
-            if (first == null) {
-                first = v;
-            } else if (Double.compare(v, first) != 0) {
-                return false; // trovato un valore diverso
-            }
-        }
-        // se tutti missing o tutti uguali → costante
-        return true;
-    }
-
 
     private Instances removeConstantAttributes(Instances data) throws Exception {
-        // ritorna una copia se dataset vuoto o senza attributi
-        if (data == null || data.numAttributes() == 0 || data.numInstances() == 0) {
-            return new Instances(Objects.requireNonNull(data));
-        }
+        List<Integer> constantAttrIndices = new ArrayList<>();
 
-        final int classIdx = data.classIndex();
-        final List<Integer> toRemove = new ArrayList<>();
-
-        // individua gli attributi costanti (escluso l'eventuale class attribute)
+        // Loop through all attributes to find which ones are constant
         for (int i = 0; i < data.numAttributes(); i++) {
-            if (i == classIdx) {
-                continue; // non rimuovere la classe
-            }
-            if (isConstantAcrossInstances(data, i)) {
-                if (log.isDebugEnabled()) {
-                    String name = data.attribute(i).name();
-                    log.debug("Marking constant attribute for removal: {}", name);
+            Attribute attribute = data.attribute(i);
+
+            // We only consider numeric attributes that are NOT the class attribute
+            if (attribute.isNumeric() && i != data.classIndex()) {
+                // Use a Set to find the number of unique values in the column
+                Set<Double> uniqueValues = new HashSet<>();
+                for (int j = 0; j < data.numInstances(); j++) {
+                    uniqueValues.add(data.instance(j).value(i));
+                    // If we find more than one unique value, we can stop checking this column
+                    if (uniqueValues.size() > 1) {
+                        break;
+                    }
                 }
-                toRemove.add(i);
+
+                // If, after checking all rows, there's only 1 unique value, the column is constant
+                if (uniqueValues.size() <= 1) {
+                    constantAttrIndices.add(i);
+                    System.out.println("Marking constant attribute for removal: " + attribute.name());
+                }
             }
         }
 
-        // se non c’è nulla da rimuovere, restituisci una copia
-        if (toRemove.isEmpty()) {
-            return new Instances(data);
+        if (constantAttrIndices.isEmpty()) {
+            return data; // No attributes to remove
         }
 
-        // rimuovi gli attributi costanti con il filtro "Remove"
-        Remove rm = new Remove();
-        rm.setAttributeIndicesArray(toRemove.stream().mapToInt(Integer::intValue).toArray());
-        rm.setInvertSelection(false);
-        rm.setInputFormat(data);
-        Instances result = Filter.useFilter(data, rm);
+        // Use the simple 'Remove' filter to delete the identified columns
+        Remove removeFilter = new Remove();
+        int[] indicesToRemove = constantAttrIndices.stream().mapToInt(i -> i).toArray();
+        removeFilter.setAttributeIndicesArray(indicesToRemove);
+        removeFilter.setInputFormat(data);
 
-        // riallinea l’attributo di classe (per nome), se presente
-        if (classIdx >= 0 && data.classAttribute() != null) {
-            Attribute oldClass = data.classAttribute();
-            Attribute newClass = result.attribute(oldClass.name());
-            if (newClass != null) {
-                result.setClass(newClass);
-            }
-        }
-
-        return result;
+        return Filter.useFilter(data, removeFilter);
     }
-
 
     private Instances scaleData(Instances data) throws Exception {
         Standardize filter = new Standardize();

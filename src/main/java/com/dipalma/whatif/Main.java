@@ -24,7 +24,7 @@ public class Main {
 
         try {
             // --- STAGE 1: DATASET CREATION ---
-            log.info("\n--- [1/3] CREATING DATASETS ---");
+            log.info("--- [1/3] CREATING DATASETS ---");
             DatasetGenerator bookkeeperGenerator = new DatasetGenerator("BOOKKEEPER", "https://github.com/apache/bookkeeper.git");
             bookkeeperGenerator.generateCsv();
 
@@ -34,7 +34,7 @@ public class Main {
 
 
             // --- STAGE 2: DATA PREPROCESSING ---
-            log.info("\n--- [2/3] PREPROCESSING DATASETS ---");
+            log.info("--- [2/3] PREPROCESSING DATASETS ---");
             DataPreprocessor bookkeeperProcessor = new DataPreprocessor("BOOKKEEPER.csv");
             bookkeeperProcessor.processData();
 
@@ -44,7 +44,7 @@ public class Main {
 
 
             // --- STAGE 3: CLASSIFIER EVALUATION ---
-            log.info("\n--- [3/4] EVALUATING CLASSIFIERS ---");
+            log.info("--- [3/4] EVALUATING CLASSIFIERS ---");
             ClassifierRunner bookkeeperRunner = new ClassifierRunner(BK_PROCESSED);
             bookkeeperRunner.runClassification();
 
@@ -53,7 +53,7 @@ public class Main {
             log.info("--- CLASSIFIER EVALUATION COMPLETE ---");
 
             // --- STAGE 4: FEATURE & METHOD SELECTION (NEW STEP) ---
-            log.info("\n--- [4/4] SELECTING FEATURE AND METHOD FOR SIMULATION ---");
+            log.info("--- [4/4] SELECTING FEATURE AND METHOD FOR SIMULATION ---");
             // We use the original CSV to get true feature values and the processed CSV for correlation
             DataAnalyzer bookkeeperAnalyzer = new DataAnalyzer("BOOKKEEPER.csv", BK_PROCESSED);
             bookkeeperAnalyzer.findActionableFeatureAndMethod();
@@ -79,13 +79,13 @@ public class Main {
             comparer.compareMethods(syncopeOriginal, syncopeRefactored);
 
             // STAGE 3: FINAL WHAT-IF ANALYSIS
-            log.info("\n--- What-if Analysis ---");
+            log.info("--- What-if Analysis ---");
 
-            log.info("\n--- Analysis for BOOKKEEPER ---");
+            log.info("--- Analysis for BOOKKEEPER ---");
             WhatIfSimulator bookkeeperSimulator = new WhatIfSimulator(BK_PROCESSED);
             bookkeeperSimulator.runFullDatasetSimulation();
 
-            log.info("\n--- Analysis for SYNCOPE ---");
+            log.info("--- Analysis for SYNCOPE ---");
             WhatIfSimulator syncopeSimulator = new WhatIfSimulator(SN_PROCESSED);
             syncopeSimulator.runFullDatasetSimulation();
 
@@ -93,6 +93,6 @@ public class Main {
             e.printStackTrace();
         }
 
-        log.info("\nAll projects processed and evaluated.");
+        log.info("All projects processed and evaluated.");
     }
 }
