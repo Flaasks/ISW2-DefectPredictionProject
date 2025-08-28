@@ -7,7 +7,7 @@ import weka.core.converters.CSVLoader;
 import weka.core.converters.CSVSaver;
 import weka.filters.Filter;
 import weka.filters.unsupervised.attribute.Remove;
-import weka.filters.unsupervised.attribute.Standardize;
+import weka.filters.unsupervised.attribute.Normalize;
 import org.apache.commons.math3.stat.descriptive.DescriptiveStatistics;
 import java.io.File;
 import java.io.IOException;
@@ -220,14 +220,15 @@ public class DataPreprocessor {
                 return false; // appena trovi 2 valori diversi, NON è costante
             }
         }
-        return true; // 0 o 1 valore distinto → costante
+        return true; // 0 o 1 valore distinto -> costante
     }
 
 
     private Instances scaleData(Instances data) throws Exception {
-        Standardize filter = new Standardize();
-        filter.setInputFormat(data);
-        return Filter.useFilter(data, filter);
+        Normalize norm = new Normalize();
+        norm.setIgnoreClass(true);
+        norm.setInputFormat(data); //min/max calcolati su data
+        return Filter.useFilter(data, norm);
     }
 
     /**

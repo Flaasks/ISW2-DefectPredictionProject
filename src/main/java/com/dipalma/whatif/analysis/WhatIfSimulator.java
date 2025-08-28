@@ -68,7 +68,7 @@ public class WhatIfSimulator {
         Instances datasetC = new Instances(datasetA, 0);
 
         for (int i = 0; i < datasetA.numInstances(); i++) {
-            if (datasetA.instance(i).value(locAttribute) > 1) {
+            if (datasetA.instance(i).value(locAttribute) > 0) {
                 datasetBplus.add(datasetA.instance(i));
             } else {
                 datasetC.add(datasetA.instance(i));
@@ -78,9 +78,9 @@ public class WhatIfSimulator {
 
         Instances datasetB = new Instances(datasetBplus);
         for (int i = 0; i < datasetB.numInstances(); i++) {
-            datasetB.instance(i).setValue(locAttribute, 1.0);
+            datasetB.instance(i).setValue(locAttribute, 0.0);
         }
-        log.info("Created synthetic Dataset B by setting LOC to 1 for all instances in B+.");
+        log.info("Created Dataset B by setting LOC to 0 for all instances in B+.");
 
         // --- Step 11: Train BClassifier on the full dataset A ---
         log.info("--- Step 11: Training BClassifier (RandomForest) on full dataset A ---");
@@ -106,9 +106,9 @@ public class WhatIfSimulator {
         if (log.isInfoEnabled()) {
             log.info("{}", String.format(TABLE_HEADER_FMT, "Dataset", "Total Instances", "Predicted Defects"));
             log.info("{}", String.format(ROW_FMT_NO_NL, "A (Full Dataset)",  datasetA.numInstances(), defectsInA));
-            log.info("{}", String.format(ROW_FMT_NO_NL, "B+ (LOC > 1)",      datasetBplus.numInstances(), defectsInBplus));
-            log.info("{}", String.format(ROW_FMT_NO_NL, "B (B+ with LOC=1)", datasetB.numInstances(), (int)Math.round(defectsInB)));
-            log.info("{}", String.format(ROW_FMT_NO_NL, "C (LOC <= 1)",      datasetC.numInstances(),    defectsInC));
+            log.info("{}", String.format(ROW_FMT_NO_NL, "B+ (LOC > 0)",      datasetBplus.numInstances(), defectsInBplus));
+            log.info("{}", String.format(ROW_FMT_NO_NL, "B (B+ with LOC = 0)", datasetB.numInstances(), (int)Math.round(defectsInB)));
+            log.info("{}", String.format(ROW_FMT_NO_NL, "C (LOC = 0)",      datasetC.numInstances(),    defectsInC));
         }
 
         // --- Step 13: Analyze the table and answer the main question ---
