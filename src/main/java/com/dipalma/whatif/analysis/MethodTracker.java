@@ -218,7 +218,6 @@ public class MethodTracker {
     private static DiffFormatter newDiffFormatter(Repository repo) {
         DiffFormatter fmt = new DiffFormatter(DisabledOutputStream.INSTANCE);
         fmt.setRepository(repo);
-        // Manteniamo lo stesso comportamento del codice originale (niente rename detection, ecc.)
         return fmt;
     }
 

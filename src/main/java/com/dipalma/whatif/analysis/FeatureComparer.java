@@ -99,7 +99,6 @@ public class FeatureComparer {
         List<String> featureNames = Arrays.asList("LOC", "CyclomaticComplexity", "ParameterCount", "Duplication", "NR", "NAuth");
 
         for(String feature : featureNames) {
-            // *** THE FIX IS HERE: Use a valid Number (0) as the default value ***
             String beforeValue = before.getOrDefault(feature, 0).toString();
             String afterValue = after.getOrDefault(feature, 0).toString();
 

@@ -60,8 +60,6 @@ public class DataAnalyzer {
         double[][] rankedAttributes = selector.rankedAttributes();
         log.info("Rank | Score   | Feature");
 
-        // *** THE FIX IS HERE ***
-        // We use a simple counter variable for the rank instead of calling a non-existent method.
         int rank = 1;
         for (double[] rankedAttribute : rankedAttributes) {
             // Weka returns an array where [0] is the attribute index and [1] is its score.

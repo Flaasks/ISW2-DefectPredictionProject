@@ -24,6 +24,7 @@ public class Main {
 
         try {
 
+            /*
             // --- STAGE 1: DATASET CREATION ---
             log.info("--- [1/3] CREATING DATASETS ---");
             DatasetGenerator bookkeeperGenerator = new DatasetGenerator("BOOKKEEPER", "https://github.com/apache/bookkeeper.git");
@@ -42,7 +43,7 @@ public class Main {
             DataPreprocessor syncopeProcessor = new DataPreprocessor("SYNCOPE.csv");
             syncopeProcessor.processData();
             log.info("--- PREPROCESSING COMPLETE ---");
-
+            */
 
             // --- STAGE 3: CLASSIFIER EVALUATION ---
             log.info("--- [3/4] EVALUATING CLASSIFIERS ---");
@@ -55,7 +56,6 @@ public class Main {
 
             // --- STAGE 4: FEATURE & METHOD SELECTION (NEW STEP) ---
             log.info("--- [4/4] SELECTING FEATURE AND METHOD FOR SIMULATION ---");
-            // We use the original CSV to get true feature values and the processed CSV for correlation
             DataAnalyzer bookkeeperAnalyzer = new DataAnalyzer("BOOKKEEPER.csv", BK_PROCESSED);
             bookkeeperAnalyzer.findActionableFeatureAndMethod();
 

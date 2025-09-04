@@ -54,8 +54,7 @@ public class DatasetGenerator {
             int releaseCutoff = (int) (releases.size() * 0.34);
             List<ProjectRelease> releasesToAnalyze = releases.subList(0, releaseCutoff);
 
-            // *** CORRECTED CSV HEADERS ***
-            // Using the single "MethodName" column and replacing "NSmells" with "Duplication"
+
             String[] headers = {"Project", "MethodName", "Release", "LOC", "CyclomaticComplexity", "ParameterCount", "Duplication", "NR", "NAuth", "stmtAdded", "stmtDeleted", "maxChurn", "avgChurn", "IsBuggy"};
             List<String[]> csvData = new ArrayList<>();
             csvData.add(headers);
@@ -69,20 +68,17 @@ public class DatasetGenerator {
                 log.info("Analyzing release: {}", release.name());
                 RevCommit releaseCommit = releaseCommits.get(release.name());
 
-                // This call now returns methods with all features already calculated.
+                // Returns methods with all features already calculated
                 List<TrackedMethod> methods = tracker.getMethodsForRelease(releaseCommit);
 
                 for (TrackedMethod method : methods) {
-                    // *** FIX: The redundant feature calculation line has been removed. ***
 
                     boolean isBuggy = isMethodBuggy(method, release, tickets, pMedian, bugToMethodsMap);
                     Map<String, Number> features = method.getFeatures();
 
-                    // Construct the specified identifier (e.g., /path/to/file.java/methodName(params))
+                    // Construct the specified identifier (/path/to/file.java/methodName(params))
                     String methodName = method.filepath() + "/" + method.signature();
 
-                    // *** CORRECTED DATA ROW ***
-                    // This now matches the corrected headers perfectly.
                     csvData.add(new String[]{
                             projectKey,
                             methodName,
@@ -107,7 +103,6 @@ public class DatasetGenerator {
         }
     }
 
-    // ... (isMethodBuggy, setVersionIndices, and other helper methods remain the same)
     private boolean isMethodBuggy(TrackedMethod method, ProjectRelease currentRelease, List<JiraTicket> allTickets, double pMedian, Map<String, List<String>> bugToMethodsMap) {
         String methodKey = method.filepath() + "::" + method.signature();
         for (JiraTicket ticket : allTickets) {

@@ -48,15 +48,15 @@ public class WhatIfSimulator {
     }
 
     /**
-     * Runs the final What-If analysis (Steps 10-13).
+     * Runs the final What-If analysis
      */
     public void runFullDatasetSimulation() throws Exception {
         // Load the data first
         loadAndPrepareData();
 
-        // --- Step 10: Create datasets B+, C, and B ---
+        // Create datasets B+, C, and B
         log.info("--- Step 10: Creating What-If Datasets ---");
-        // Our chosen Actionable Feature
+        // Our chosen AFeature
         String aFeature = "LOC";
         Attribute locAttribute = datasetA.attribute(aFeature);
         if (locAttribute == null) {
@@ -82,8 +82,8 @@ public class WhatIfSimulator {
         }
         log.info("Created Dataset B by setting LOC to 0 for all instances in B+.");
 
-        // --- Step 11: Train BClassifier on the full dataset A ---
-        log.info("--- Step 11: Training BClassifier (RandomForest) on full dataset A ---");
+        // Train BClassifier on the full dataset A
+        log.info("--- Step 11: Training BClassifier on full dataset A ---");
         Classifier bClassifier = new RandomForest();
         Resample resample = new Resample();
         resample.setBiasToUniformClass(1.0);
@@ -95,7 +95,7 @@ public class WhatIfSimulator {
         trainedModel.buildClassifier(datasetA);
         log.info("Model training complete.");
 
-        // --- Step 12: Predict on all datasets and create the results table ---
+        // Predict on all datasets and create the results table
         log.info("--- Step 12: Predicting Defectiveness and Creating Results Table ---");
         int defectsInA = countDefectivePredictions(trainedModel, datasetA);
         int defectsInBplus = countDefectivePredictions(trainedModel, datasetBplus);
@@ -111,7 +111,7 @@ public class WhatIfSimulator {
             log.info("{}", String.format(ROW_FMT_NO_NL, "C (LOC = 0)",      datasetC.numInstances(),    defectsInC));
         }
 
-        // --- Step 13: Analyze the table and answer the main question ---
+        // Analyze the table and answer the main question
         log.info("--- Step 13: Final Analysis ---");
         if (defectsInBplus > 0) {
             double preventable = defectsInBplus - defectsInB;

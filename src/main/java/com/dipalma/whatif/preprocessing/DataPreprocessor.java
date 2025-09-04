@@ -61,7 +61,7 @@ public class DataPreprocessor {
         Instances scaledData = scaleData(dataWithoutUseless);
         log.info("Data successfully scaled.");
 
-        // 6. *** NEW AND FINAL STEP: Remove identifier columns ***
+        // 6. Remove identifier columns
         Instances finalData = removeIdentifierColumns(scaledData);
         log.info("Identifier columns removed. Final data has {} attributes.", finalData.numAttributes());
 
@@ -72,7 +72,7 @@ public class DataPreprocessor {
 
     private Instances removeIdentifierColumns(Instances data) throws Exception {
         Remove removeFilter = new Remove();
-        // Set the indices to remove. Weka's range list is 1-based.
+        // Set the indices to remove
         removeFilter.setAttributeIndices("1-3");
         removeFilter.setInputFormat(data);
         return Filter.useFilter(data, removeFilter);
@@ -110,19 +110,16 @@ public class DataPreprocessor {
         return loader.getDataSet();
     }
 
-    // --- metodo rifattorizzato ---
     private Instances removeOutliers(Instances data) {
-        // stessa struttura iniziale: copia intestazione e svuota
         Instances filteredData = new Instances(data);
         filteredData.delete();
 
-        // individua attributi numerici (escludendo "Release")
         List<Integer> numericAttrIndices = getNumericAttrIndices(data);
 
         boolean[] toRemove = new boolean[data.numInstances()];
         for (int attrIndex : numericAttrIndices) {
             Bounds b = computeBounds(data, attrIndex);
-            if (b != null) { // std=0 (o NaN) => nessun outlier per quell'attributo
+            if (b != null) { // std=0 (o NaN) => no outlier for that attribute
                 markOutliersForAttr(data, attrIndex, b, toRemove);
             }
         }
@@ -131,7 +128,6 @@ public class DataPreprocessor {
         return filteredData;
     }
 
-    // --- helper ---
     private static List<Integer> getNumericAttrIndices(Instances data) {
         List<Integer> indices = new ArrayList<>();
         for (int i = 0; i < data.numAttributes(); i++) {
@@ -150,7 +146,7 @@ public class DataPreprocessor {
         }
         double std = stats.getStandardDeviation();
         if (std == 0.0 || Double.isNaN(std)) {
-            return null; // colonna costante o non valutabile: nessun outlier
+            return null; // costant column: no outlier
         }
         double mean = stats.getMean();
         double delta = OUTLIER_STD_MULTIPLIER * std;
@@ -159,7 +155,7 @@ public class DataPreprocessor {
 
     private static void markOutliersForAttr(Instances data, int attrIndex, Bounds b, boolean[] toRemove) {
         for (int i = 0; i < data.numInstances(); i++) {
-            if (!toRemove[i]) { // non ricontrollare righe già marcate
+            if (!toRemove[i]) {
                 double v = data.instance(i).value(attrIndex);
                 if (v < b.lower || v > b.upper) {
                     toRemove[i] = true;
@@ -185,7 +181,7 @@ public class DataPreprocessor {
             if (isNumericNonClass(data, i) && hasAtMostOneUniqueValue(data, i)) {
                 constantAttrIndices.add(i);
 
-                final int idx = i; // per lambda effectively-final
+                final int idx = i;
                 log.atInfo()
                         .setMessage("Marking constant attribute for removal: {}")
                         .addArgument(() -> data.attribute(idx).name())
@@ -194,7 +190,7 @@ public class DataPreprocessor {
         }
 
         if (constantAttrIndices.isEmpty()) {
-            return data; // nessun attributo da rimuovere
+            return data;
         }
 
         Remove removeFilter = new Remove();
@@ -206,7 +202,7 @@ public class DataPreprocessor {
         return Filter.useFilter(data, removeFilter);
     }
 
-    // === Helper privati (stessa classe) ===
+
     private static boolean isNumericNonClass(Instances data, int index) {
         Attribute attr = data.attribute(index);
         return attr.isNumeric() && index != data.classIndex();
@@ -227,7 +223,7 @@ public class DataPreprocessor {
     private Instances scaleData(Instances data) throws Exception {
         Normalize norm = new Normalize();
         norm.setIgnoreClass(true);
-        norm.setInputFormat(data); //min/max calcolati su data
+        norm.setInputFormat(data);
         return Filter.useFilter(data, norm);
     }
 
