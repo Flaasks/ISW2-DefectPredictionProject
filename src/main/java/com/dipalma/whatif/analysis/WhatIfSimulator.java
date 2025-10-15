@@ -1,147 +1,114 @@
 package com.dipalma.whatif.analysis;
 
-import weka.classifiers.Classifier;
-import weka.classifiers.meta.FilteredClassifier;
-import weka.classifiers.trees.RandomForest;
-import weka.core.Attribute;
-import weka.core.Instances;
-import weka.core.converters.CSVLoader;
-import weka.filters.Filter;
-import weka.filters.supervised.instance.Resample;
-import weka.filters.unsupervised.attribute.NumericToNominal;
-
-import java.io.File;
-
+import com.dipalma.whatif.classification.ClassifierRunner;
+import org.apache.commons.csv.CSVFormat;
+import org.apache.commons.csv.CSVParser;
+import org.apache.commons.csv.CSVRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import weka.classifiers.Classifier;
+import weka.core.Instances;
+import weka.core.converters.CSVLoader;
 
+import java.io.File;
+import java.io.FileReader;
+import java.io.FileWriter;
+import java.text.DecimalFormat;
+import java.util.LinkedHashMap;
+import java.util.Map;
+
+/**
+ * New WhatIfSimulator: automated what-if pipeline using DatasetSplitter and ClassifierRunner.
+ */
 public class WhatIfSimulator {
 
-    private final String processedCsvPath;  
-    private Instances datasetA;
+    private final String processedCsvPath;
     private static final Logger log = LoggerFactory.getLogger(WhatIfSimulator.class);
-    private static final String TABLE_HEADER_FMT = "| %-20s | %-15s | %-15s |";
-    private static final String ROW_FMT_NO_NL    = "| %-20s | %-15d | %-15d |";
 
     public WhatIfSimulator(String processedCsvPath) {
         this.processedCsvPath = processedCsvPath;
     }
 
-    private void loadAndPrepareData() throws Exception {
-        CSVLoader loader = new CSVLoader();
-        loader.setSource(new File(processedCsvPath));
-        Instances rawData = loader.getDataSet();
-
-        int classAttrIndex = rawData.numAttributes() - 1;
-        rawData.setClassIndex(classAttrIndex);
-
-        if (rawData.classAttribute().isNumeric()) {
-            NumericToNominal num2nom = new NumericToNominal();
-            num2nom.setAttributeIndices("last");
-            num2nom.setInputFormat(rawData);
-            this.datasetA = Filter.useFilter(rawData, num2nom);
-        } else {
-            this.datasetA = rawData;
-        }
-
-        log.info("Loaded and prepared dataset A with {} instances and {} attributes.", datasetA.numInstances(), datasetA.numAttributes());
-    }
-
-    /**
-     * Runs the final What-If analysis
-     */
     public void runFullDatasetSimulation() throws Exception {
-        // Load the data first
-        loadAndPrepareData();
+        log.info("Starting what-if simulation for {}", processedCsvPath);
 
-        // Create datasets B+, C, and B
-        log.info("--- Step 10: Creating What-If Datasets ---");
-        // Our chosen AFeature
-        String aFeature = "LOC";
-        Attribute locAttribute = datasetA.attribute(aFeature);
-        if (locAttribute == null) {
-            log.info("Error: Could not find AFeature '{}' in the dataset.", aFeature);
+        // 1) detect top actionable feature
+        var opt = FeatureAnalyzer.selectTopActionableFeature(processedCsvPath);
+        if (opt.isEmpty()) {
+            log.error("No actionable feature detected for {}", processedCsvPath);
+            return;
+        }
+        String topFeature = opt.get();
+        log.info("Top actionable feature: {}", topFeature);
+
+        // 2) split datasets and create B using DatasetSplitter
+        String prefix = processedCsvPath.replaceAll("_processed\\.csv$", "");
+        DatasetSplitter.split(processedCsvPath, prefix, topFeature);
+
+        // 3) Train best classifier on A_train
+        String aTrain = prefix + "_A_train.csv";
+        ClassifierRunner runner = new ClassifierRunner(aTrain);
+        // load and prepare done inside trainBestClassifier by passing Instances
+        CSVLoader loader = new CSVLoader();
+        loader.setSource(new File(aTrain));
+        Instances trainData = loader.getDataSet();
+        trainData.setClassIndex(trainData.numAttributes() - 1);
+
+        Classifier cls = runner.trainBestClassifier(trainData);
+        if (cls == null) {
+            log.error("trainBestClassifier returned null for {}", aTrain);
             return;
         }
 
-        Instances datasetBplus = new Instances(datasetA, 0);
-        Instances datasetC = new Instances(datasetA, 0);
+        // 4) Predict on A_test, B+, B, C
+        Map<String, String> datasets = new LinkedHashMap<>();
+        datasets.put("A", prefix + "_A_test.csv");
+        datasets.put("B+", prefix + "_Bplus.csv");
+        datasets.put("B", prefix + "_B.csv");
+        datasets.put("C", prefix + "_C.csv");
 
-        for (int i = 0; i < datasetA.numInstances(); i++) {
-            if (datasetA.instance(i).value(locAttribute) > 0) {
-                datasetBplus.add(datasetA.instance(i));
-            } else {
-                datasetC.add(datasetA.instance(i));
+        Map<String, Integer> actual = new LinkedHashMap<>();
+        Map<String, Integer> predicted = new LinkedHashMap<>();
+
+        for (var e : datasets.entrySet()) {
+            String name = e.getKey();
+            String path = e.getValue();
+            String out = path.replace(".csv", "_pred.csv");
+            // predict (this will also validate header consistency)
+            runner.predictToCsv(cls, path, out);
+
+            // compute counts
+            try (CSVParser parser = CSVFormat.DEFAULT.withFirstRecordAsHeader().parse(new FileReader(out))) {
+                int act = 0, pred = 0;
+                for (CSVRecord r : parser) {
+                    String a = r.get("IsBuggy");
+                    String p = r.get("PredictedIsBuggy");
+                    if (a != null && (a.equalsIgnoreCase("yes") || a.equalsIgnoreCase("true") || a.equals("1"))) act++;
+                    if (p != null && (p.equalsIgnoreCase("yes") || p.equalsIgnoreCase("true") || p.equals("1"))) pred++;
+                }
+                actual.put(name, act);
+                predicted.put(name, pred);
             }
         }
-        log.info("Created Dataset B+ (size: {}) and C (size: {})", datasetBplus.numInstances(), datasetC.numInstances());
 
-        Instances datasetB = new Instances(datasetBplus);
-        for (int i = 0; i < datasetB.numInstances(); i++) {
-            datasetB.instance(i).setValue(locAttribute, 0.0);
-        }
-        log.info("Created Dataset B by setting LOC to 0 for all instances in B+.");
+        // 5) Compute Drop and Reduction and write summary
+        int bplusPred = predicted.getOrDefault("B+", 0);
+        int bPred = predicted.getOrDefault("B", 0);
+        int aActual = actual.getOrDefault("A", 0);
+        int drop = Math.max(0, bplusPred - bPred);
+        double dropPct = bplusPred == 0 ? 0.0 : (drop * 100.0) / bplusPred;
+        double reductionPct = aActual == 0 ? 0.0 : (drop * 100.0) / aActual;
 
-        // Train BClassifier on the full dataset A
-        log.info("--- Step 11: Training BClassifier on full dataset A ---");
-        Classifier bClassifier = new RandomForest();
-        Resample resample = new Resample();
-        resample.setBiasToUniformClass(1.0);
-
-        FilteredClassifier trainedModel = new FilteredClassifier();
-        trainedModel.setFilter(resample);
-        trainedModel.setClassifier(bClassifier);
-
-        trainedModel.buildClassifier(datasetA);
-        log.info("Model training complete.");
-
-        // Predict on all datasets and create the results table
-        log.info("--- Step 12: Predicting Defectiveness and Creating Results Table ---");
-        int defectsInA = countDefectivePredictions(trainedModel, datasetA);
-        int defectsInBplus = countDefectivePredictions(trainedModel, datasetBplus);
-        double defectsInB = countDefectivePredictions(trainedModel, datasetB);
-        int defectsInC = countDefectivePredictions(trainedModel, datasetC);
-
-        log.info("                      WHAT-IF ANALYSIS RESULTS                      ");
-        if (log.isInfoEnabled()) {
-            log.info("{}", String.format(TABLE_HEADER_FMT, "Dataset", "Total Instances", "Predicted Defects"));
-            log.info("{}", String.format(ROW_FMT_NO_NL, "A (Full Dataset)",  datasetA.numInstances(), defectsInA));
-            log.info("{}", String.format(ROW_FMT_NO_NL, "B+ (LOC > 0)",      datasetBplus.numInstances(), defectsInBplus));
-            log.info("{}", String.format(ROW_FMT_NO_NL, "B (B+ with LOC = 0)", datasetB.numInstances(), (int)Math.round(defectsInB)));
-            log.info("{}", String.format(ROW_FMT_NO_NL, "C (LOC = 0)",      datasetC.numInstances(),    defectsInC));
+        DecimalFormat df = new DecimalFormat("0.##");
+        String summary = prefix + "_whatif_summary.csv";
+        try (FileWriter fw = new FileWriter(summary)) {
+            fw.write("Dataset,Actual,Predicted\n");
+            for (String k : actual.keySet()) fw.write(k + "," + actual.get(k) + "," + predicted.get(k) + "\n");
+            fw.write("Drop," + drop + "," + df.format(dropPct) + "%\n");
+            fw.write("Reduction," + drop + "," + df.format(reductionPct) + "%\n");
         }
 
-        // Analyze the table and answer the main question
-        log.info("--- Step 13: Final Analysis ---");
-        if (defectsInBplus > 0) {
-            double preventable = defectsInBplus - defectsInB;
-            double reductionOutOfPreventable = (preventable / defectsInBplus) * 100;
-
-            log.info("By simulating the reduction of LOC, the number of predicted buggy methods in the 'at-risk' group (B+) dropped from {} to {}.",
-                    defectsInBplus, defectsInB);
-            if (log.isInfoEnabled()) {
-                String pct = String.format("%.2f", reductionOutOfPreventable);
-                log.info("This represents a {}% reduction among the methods that could be refactored.", pct);
-            }
-            log.info("ANSWER: An estimated {} buggy methods could have been prevented by having low Lines of Code.",
-                    Math.round(preventable));
-        } else {
-            log.info("No defects were predicted in the 'at-risk' group (B+), so no preventable defects were found.");
-        }
-    }
-
-    private int countDefectivePredictions(Classifier model, Instances data) throws Exception {
-        int defectiveCount = 0;
-        double buggyClassIndex = data.classAttribute().indexOfValue("1");
-        if (buggyClassIndex == -1) {
-            buggyClassIndex = data.classAttribute().indexOfValue("yes");
-        }
-
-        for (int i = 0; i < data.numInstances(); i++) {
-            if (model.classifyInstance(data.instance(i)) == buggyClassIndex) {
-                defectiveCount++;
-            }
-        }
-        return defectiveCount;
+        log.info("What-if analysis complete for {}. Summary written to {}", processedCsvPath, summary);
+        log.info("Drop = {} ({}%), Reduction = {}%", drop, df.format(dropPct), df.format(reductionPct));
     }
 }

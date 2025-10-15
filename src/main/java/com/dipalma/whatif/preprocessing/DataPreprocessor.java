@@ -45,43 +45,63 @@ public class DataPreprocessor {
         }
         log.info("Original data shape: {} rows, {} attributes.", data.numInstances(), data.numAttributes());
 
-        // 2. Sanitize
-        Instances sanitizedData = sanitizeData(data);
-        log.info("Data sanitized.");
+        // 2. Remove identifier columns early so identifiers don't affect numeric transforms
+        Instances withoutIds = removeIdentifierColumns(data);
+        // Ensure class is last after structural change
+        withoutIds.setClassIndex(withoutIds.numAttributes() - 1);
+        log.info("Identifier columns removed early. Shape: {} rows, {} attributes.", withoutIds.numInstances(), withoutIds.numAttributes());
 
-        // 3. Remove outliers
-        Instances dataWithoutOutliers = removeOutliers(sanitizedData);
-        log.info("Data shape after outlier removal: {} rows.", dataWithoutOutliers.numInstances());
+        // 3. Sanitize (replace NaN/Inf with column mean)
+        SanitizeResult sanitizeResult = sanitizeData(withoutIds);
+        Instances sanitizedData = sanitizeResult.instances();
+        log.info("Data sanitized. Imputed values count: {}", sanitizeResult.totalImputed());
 
-        // 4. Remove constant numeric features
-        Instances dataWithoutUseless = removeConstantAttributes(dataWithoutOutliers);
-        log.info("Data shape after removing useless attributes: {} rows.", dataWithoutUseless.numInstances());
+        // 4. Winsorize outliers (cap values) instead of deleting rows
+        WinsorizeResult winsorized = winsorizeOutliers(sanitizedData);
+        Instances dataWinsorized = winsorized.instances();
+        log.info("Winsorization complete. Total values capped: {}", winsorized.totalCapped());
 
-        // 5. Scale the data
+        // 5. Remove constant numeric features (after winsorization)
+        Instances dataWithoutUseless = removeConstantAttributes(dataWinsorized);
+        dataWithoutUseless.setClassIndex(dataWithoutUseless.numAttributes() - 1);
+        log.info("Data shape after removing useless attributes: {} rows, {} attributes.", dataWithoutUseless.numInstances(), dataWithoutUseless.numAttributes());
+
+        // 6. Scale the data (ignore the class attribute)
         Instances scaledData = scaleData(dataWithoutUseless);
+        scaledData.setClassIndex(scaledData.numAttributes() - 1);
         log.info("Data successfully scaled.");
 
-        // 6. Remove identifier columns
-        Instances finalData = removeIdentifierColumns(scaledData);
-        log.info("Identifier columns removed. Final data has {} attributes.", finalData.numAttributes());
-
         // 7. Save the final, clean data
-        saveToCsv(finalData, this.outputFilePath);
+        saveToCsv(scaledData, this.outputFilePath);
         log.info("Processed data saved to: {}", this.outputFilePath);
     }
 
     private Instances removeIdentifierColumns(Instances data) throws Exception {
+        // Remove common identifier columns by name if present (Project, MethodName, Release)
+        List<Integer> toRemove = new ArrayList<>();
+        for (String id : new String[]{"Project", "MethodName", "Release"}) {
+            var attr = data.attribute(id);
+            if (attr != null) toRemove.add(attr.index());
+        }
+
+        if (toRemove.isEmpty()) return data;
+
         Remove removeFilter = new Remove();
-        // Set the indices to remove
-        removeFilter.setAttributeIndices("1-3");
+        removeFilter.setAttributeIndicesArray(toRemove.stream().mapToInt(Integer::intValue).toArray());
         removeFilter.setInputFormat(data);
-        return Filter.useFilter(data, removeFilter);
+        Instances filtered = Filter.useFilter(data, removeFilter);
+
+        // Ensure class attribute is the last attribute
+        filtered.setClassIndex(filtered.numAttributes() - 1);
+        return filtered;
     }
 
     /**
      * New method to find and replace any NaN or Infinite values.
      */
-    private Instances sanitizeData(Instances data) {
+    private record SanitizeResult(Instances instances, int totalImputed) {}
+
+    private SanitizeResult sanitizeData(Instances data) {
         // Calculate column means for replacement
         double[] means = new double[data.numAttributes()];
         for (int j = 0; j < data.numAttributes(); j++) {
@@ -90,6 +110,7 @@ public class DataPreprocessor {
             }
         }
 
+        int totalImputed = 0;
         for (int i = 0; i < data.numInstances(); i++) {
             for (int j = 0; j < data.numAttributes(); j++) {
                 if (data.attribute(j).isNumeric()) {
@@ -97,11 +118,40 @@ public class DataPreprocessor {
                     if (Double.isNaN(value) || Double.isInfinite(value)) {
                         // Replace non-finite value with the mean of the column
                         data.instance(i).setValue(j, means[j]);
+                        totalImputed++;
                     }
                 }
             }
         }
-        return data;
+        return new SanitizeResult(data, totalImputed);
+    }
+
+    private record WinsorizeResult(Instances instances, int totalCapped) {}
+
+    private WinsorizeResult winsorizeOutliers(Instances data) {
+        Instances result = new Instances(data);
+        int totalCapped = 0;
+
+        List<Integer> numericAttrIndices = getNumericAttrIndices(data);
+
+        for (int attrIndex : numericAttrIndices) {
+            Bounds b = computeBounds(data, attrIndex);
+            if (b == null) continue; // constant column or invalid stats
+
+            for (int i = 0; i < result.numInstances(); i++) {
+                double v = result.instance(i).value(attrIndex);
+                if (Double.isNaN(v) || Double.isInfinite(v)) continue; // already sanitized earlier
+                if (v < b.lower) {
+                    result.instance(i).setValue(attrIndex, b.lower);
+                    totalCapped++;
+                } else if (v > b.upper) {
+                    result.instance(i).setValue(attrIndex, b.upper);
+                    totalCapped++;
+                }
+            }
+        }
+
+        return new WinsorizeResult(result, totalCapped);
     }
 
     private Instances loadCsv(String filename) throws IOException {
@@ -132,7 +182,7 @@ public class DataPreprocessor {
         List<Integer> indices = new ArrayList<>();
         for (int i = 0; i < data.numAttributes(); i++) {
             Attribute attr = data.attribute(i);
-            if (attr.isNumeric() && !RELEASE_ATTR.equalsIgnoreCase(attr.name())) {
+            if (attr.isNumeric() && !RELEASE_ATTR.equalsIgnoreCase(attr.name()) && i != data.classIndex()) {
                 indices.add(i);
             }
         }

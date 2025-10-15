@@ -6,6 +6,7 @@ import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.CallableDeclaration;
 import com.github.javaparser.ast.expr.ConditionalExpr;
 import com.github.javaparser.ast.stmt.*;
+import com.github.javaparser.ast.expr.SimpleName;
 import com.dipalma.whatif.connectors.GitConnector;
 import com.dipalma.whatif.model.TrackedMethod;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -21,6 +22,9 @@ import org.eclipse.jgit.util.io.DisabledOutputStream;
 import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.nio.charset.StandardCharsets;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -69,8 +73,29 @@ public class MethodTracker {
         }
 
         // Calculate all features now that we have all methods for this release
-        for(TrackedMethod method : currentMethods) {
+        // Fingerprint method bodies (normalize identifiers) and count identical fingerprints
+        Map<String, Integer> fingerprintCount = new HashMap<>();
+        Map<TrackedMethod, String> methodFingerprint = new HashMap<>();
+        for (Map.Entry<TrackedMethod, CallableDeclaration<?>> e : methodAstMap.entrySet()) {
+            CallableDeclaration<?> callable = e.getValue();
+            String normalized = "";
+            try {
+                CallableDeclaration<?> clone = callable.clone();
+                clone.findAll(SimpleName.class).forEach(sn -> sn.setIdentifier("__ID__"));
+                normalized = clone.toString().replaceAll("\\s+", " ").trim();
+            } catch (Exception ex) {
+                normalized = callable.toString().replaceAll("\\s+", " ").trim();
+            }
+            String fp = sha256(normalized);
+            methodFingerprint.put(e.getKey(), fp);
+            fingerprintCount.put(fp, fingerprintCount.getOrDefault(fp, 0) + 1);
+        }
+
+        for (TrackedMethod method : currentMethods) {
             CallableDeclaration<?> callable = methodAstMap.get(method);
+            String fp = methodFingerprint.getOrDefault(method, "");
+            int dupCount = Math.max(0, fingerprintCount.getOrDefault(fp, 1) - 1);
+            method.addFeature("Duplication", dupCount);
             calculateAllFeatures(method, callable, releaseCommit);
         }
 
@@ -292,5 +317,17 @@ public class MethodTracker {
 
     private void addPlaceholderChangeFeatures(TrackedMethod method) {
         method.addAllFeatures(getPlaceholderChangeFeatures());
+    }
+
+    private static String sha256(String s) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] h = md.digest(s.getBytes(StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder();
+            for (byte b : h) sb.append(String.format("%02x", b));
+            return sb.toString();
+        } catch (NoSuchAlgorithmException e) {
+            return Integer.toString(s.hashCode());
+        }
     }
 }

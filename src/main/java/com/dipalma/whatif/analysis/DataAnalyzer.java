@@ -26,6 +26,7 @@ public class DataAnalyzer {
     private final String originalCsvPath;
     private final String processedCsvPath;
     private Instances data;
+    private String selectedMethodName = "";
     private static final Logger log = LoggerFactory.getLogger(DataAnalyzer.class);
     private static final String RANK_ROW_FMT = "%-4d | %-7.4f | %s";
 
@@ -115,6 +116,8 @@ public class DataAnalyzer {
 
         if (afMethodOpt.isPresent()) {
             CSVRecord afMethod = afMethodOpt.get();
+            // store selected method name for external callers
+            this.selectedMethodName = afMethod.get("MethodName");
             log.info("Identified AFMethod (buggy method in last release with highest {}):", aFeature);
             if (log.isInfoEnabled()) {
                 Object methodName   = afMethod.get("MethodName");
@@ -126,5 +129,13 @@ public class DataAnalyzer {
         } else {
             log.warn("Could not find any buggy methods in the last release ({}) to select AFMethod.", lastRelease);
         }
+    }
+
+    /**
+     * Return the MethodName selected by the last call to findActionableFeatureAndMethod().
+     * Returns empty string if none was selected.
+     */
+    public String getSelectedMethodName() {
+        return this.selectedMethodName;
     }
 }
