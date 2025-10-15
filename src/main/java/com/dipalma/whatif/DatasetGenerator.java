@@ -51,7 +51,10 @@ public class DatasetGenerator {
             Map<String, RevCommit> releaseCommits = git.getReleaseCommits(releases);
             MethodTracker tracker = new MethodTracker(git);
 
-            int releaseCutoff = (int) (releases.size() * 0.34);
+            // Keep the first 34% of releases (ignore last 66%). Ensure at least one release
+            int releaseCutoff = (int) Math.floor(releases.size() * 0.34);
+            releaseCutoff = Math.max(1, releaseCutoff); // never allow zero
+            if (releaseCutoff > releases.size()) releaseCutoff = releases.size();
             List<ProjectRelease> releasesToAnalyze = releases.subList(0, releaseCutoff);
 
 
@@ -142,7 +145,7 @@ public class DatasetGenerator {
                 return release.index();
             }
         }
-        return releases.isEmpty() ? -1 : releases.getLast().index();
+        return releases.isEmpty() ? -1 : releases.get(releases.size() - 1).index();
     }
     private double calculateProportionCoefficient(List<JiraTicket> tickets) {
         List<Double> pValues = new ArrayList<>();

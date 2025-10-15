@@ -58,9 +58,13 @@ public class Main {
             log.info("--- [4/4] SELECTING FEATURE AND METHOD FOR SIMULATION ---");
             DataAnalyzer bookkeeperAnalyzer = new DataAnalyzer("BOOKKEEPER.csv", BK_PROCESSED);
             bookkeeperAnalyzer.findActionableFeatureAndMethod();
+            String bkSelectedMethod = bookkeeperAnalyzer.getSelectedMethodName();
+            log.info("Bookkeeper selected AFMethod: {}", bkSelectedMethod);
 
             DataAnalyzer syncopeAnalyzer = new DataAnalyzer("SYNCOPE.csv", SN_PROCESSED);
             syncopeAnalyzer.findActionableFeatureAndMethod();
+            String snSelectedMethod = syncopeAnalyzer.getSelectedMethodName();
+            log.info("Syncope selected AFMethod: {}", snSelectedMethod);
             log.info("--- FEATURE & METHOD SELECTION COMPLETE ---");
 
 
@@ -71,13 +75,13 @@ public class Main {
 
             log.info("--- METHOD COMPARING COMPLETE ---");
             // --- Analysis for BookKeeper ---
-            String bookkeeperOriginal = "D:/isw2project/DefectPredictionProject/src/main/java/com/dipalma/whatif/Bookkeeper_Original.txt";
-            String bookkeeperRefactored = "D:/isw2project/DefectPredictionProject/src/main/java/com/dipalma/whatif//Bookkeeper_Refactored.txt";
+            String bookkeeperOriginal = "src/main/java/com/dipalma/whatif/Bookkeeper_Original.txt";
+            String bookkeeperRefactored = "src/main/java/com/dipalma/whatif/Bookkeeper_Refactored.txt";
             comparer.compareMethods(bookkeeperOriginal, bookkeeperRefactored);
 
             // --- Analysis for Syncope ---
-            String syncopeOriginal = "D:/isw2project/DefectPredictionProject/src/main/java/com/dipalma/whatif/Syncope_Original.txt";
-            String syncopeRefactored = "D:/isw2project/DefectPredictionProject/src/main/java/com/dipalma/whatif/Syncope_Refactored.txt";
+            String syncopeOriginal = "src/main/java/com/dipalma/whatif/Syncope_Original.txt";
+            String syncopeRefactored = "src/main/java/com/dipalma/whatif/Syncope_Refactored.txt";
             comparer.compareMethods(syncopeOriginal, syncopeRefactored);
 
             // STAGE 3: FINAL WHAT-IF ANALYSIS

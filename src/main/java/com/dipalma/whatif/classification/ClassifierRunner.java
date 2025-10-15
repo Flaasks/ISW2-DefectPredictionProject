@@ -11,6 +11,11 @@ import weka.core.converters.CSVLoader;
 import weka.filters.Filter;
 import weka.filters.supervised.instance.Resample;
 import weka.filters.unsupervised.attribute.NumericToNominal;
+import weka.core.SerializationHelper;
+import org.apache.commons.csv.CSVFormat;
+import org.apache.commons.csv.CSVPrinter;
+import java.util.ArrayList;
+import java.util.List;
 
 import java.io.File;
 import java.util.Random;
@@ -22,6 +27,7 @@ public class ClassifierRunner {
 
     private final String csvFilePath;
     private Instances data;
+    private List<String> lastTrainingHeader = null;
     private static final Logger log = LoggerFactory.getLogger(ClassifierRunner.class);
     private static final String ROW_FMT    = "%-20s | %-10.3f | %-10.3f | %-10.3f | %-10.3f";
     private static final String HEADER_FMT = "%-20s | %-10s | %-10s | %-10s | %-10s";
@@ -82,6 +88,8 @@ public class ClassifierRunner {
         for (Classifier baseClassifier : classifiers) {
             Resample resample = new Resample();
             resample.setBiasToUniformClass(1.0);
+            resample.setNoReplacement(false);
+            resample.setSampleSizePercent(100.0);
 
             FilteredClassifier classifierWithResample = new FilteredClassifier();
             classifierWithResample.setClassifier(baseClassifier);
@@ -95,6 +103,8 @@ public class ClassifierRunner {
 
             for (int i = 0; i < numRepeats; i++) {
                 Evaluation eval = new Evaluation(this.data);
+                // use repeat-specific seed for deterministic folds
+                resample.setRandomSeed(i);
                 eval.crossValidateModel(classifierWithResample, this.data, 10, new Random(i));
 
                 totalAuc += eval.weightedAreaUnderROC();
@@ -112,6 +122,96 @@ public class ClassifierRunner {
                         totalRecall / numRepeats,
                         totalKappa / numRepeats
                 ));
+            }
+        }
+    }
+
+    /**
+     * Train classifiers on provided Instances and return the best classifier (by average AUC over repeats).
+     */
+    public Classifier trainBestClassifier(Instances dataset) throws Exception {
+        Classifier[] classifiers = {
+                new RandomForest(),
+                new NaiveBayes(),
+                new IBk(3)
+        };
+
+    FilteredClassifier best = null;
+        double bestScore = Double.NEGATIVE_INFINITY;
+
+        for (Classifier c : classifiers) {
+            Resample resample = new Resample();
+            resample.setBiasToUniformClass(1.0);
+            resample.setNoReplacement(false);
+            resample.setSampleSizePercent(100.0);
+            resample.setRandomSeed(1);
+
+            FilteredClassifier fc = new FilteredClassifier();
+            fc.setClassifier(weka.classifiers.AbstractClassifier.makeCopy(c));
+            fc.setFilter(resample);
+
+            int repeats = 10;
+            double totalAuc = 0;
+            for (int i = 0; i < repeats; i++) {
+                // Cross-validate using the FilteredClassifier (which includes resampling)
+                Evaluation eval = new Evaluation(dataset);
+                resample.setRandomSeed(i);
+                eval.crossValidateModel(fc, dataset, 10, new Random(i));
+                totalAuc += eval.weightedAreaUnderROC();
+            }
+            double avgAuc = totalAuc / repeats;
+            if (avgAuc > bestScore) {
+                bestScore = avgAuc;
+                best = fc;
+                // Train best on full dataset AFTER selection
+                // but postpone building until after loop to keep best as chosen fc
+            }
+        }
+        if (best != null) {
+            // record header for later validation
+            lastTrainingHeader = new ArrayList<>();
+            for (int i = 0; i < dataset.numAttributes(); i++) lastTrainingHeader.add(dataset.attribute(i).name());
+            best.buildClassifier(dataset);
+        }
+        return best;
+    }
+
+    public void saveModel(Classifier cls, String path) throws Exception {
+        SerializationHelper.write(path, cls);
+    }
+
+    public void predictToCsv(Classifier cls, String inputCsv, String outCsv) throws Exception {
+        CSVLoader loader = new CSVLoader();
+        loader.setSource(new java.io.File(inputCsv));
+        Instances data = loader.getDataSet();
+        data.setClassIndex(data.numAttributes() - 1);
+
+        // Validate attribute headers if we have a recorded training header
+        if (lastTrainingHeader != null) {
+            if (lastTrainingHeader.size() != data.numAttributes()) {
+                throw new IllegalArgumentException("Input CSV does not match training attributes (different attribute count). Use the same processed CSV used for training.");
+            }
+            for (int i = 0; i < data.numAttributes(); i++) {
+                if (!lastTrainingHeader.get(i).equals(data.attribute(i).name())) {
+                    throw new IllegalArgumentException("Input CSV attribute names/order differ from training dataset. Ensure you pass the same processed CSV or reorder attributes.");
+                }
+            }
+        }
+
+        try (java.io.FileWriter fw = new java.io.FileWriter(outCsv);
+             CSVPrinter printer = new CSVPrinter(fw, CSVFormat.DEFAULT)) {
+            // header
+            List<String> header = new ArrayList<>();
+            for (int i = 0; i < data.numAttributes(); i++) header.add(data.attribute(i).name());
+            header.add("PredictedIsBuggy");
+            printer.printRecord(header);
+
+            for (int i = 0; i < data.numInstances(); i++) {
+                double pred = cls.classifyInstance(data.instance(i));
+                List<String> rec = new ArrayList<>();
+                for (int a = 0; a < data.numAttributes(); a++) rec.add(data.instance(i).toString(a));
+                rec.add(data.classAttribute().value((int) pred));
+                printer.printRecord(rec);
             }
         }
     }
