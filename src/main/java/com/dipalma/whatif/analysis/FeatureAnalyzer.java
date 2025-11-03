@@ -16,7 +16,7 @@ public class FeatureAnalyzer {
 
     public static Map<String, Double> computeCorrelations(String csvFilePath) throws IOException {
         try (Reader in = new FileReader(csvFilePath);
-             CSVParser parser = CSVFormat.DEFAULT.withFirstRecordAsHeader().parse(in)) {
+             CSVParser parser = CSVFormat.DEFAULT.builder().setHeader().setSkipHeaderRecord(true).build().parse(in)) {
 
             List<String> headers = parser.getHeaderNames();
             List<Map<String, String>> rows = new ArrayList<>();

@@ -63,6 +63,9 @@ public class MethodTracker {
                     }
 
                     TrackedMethod trackedMethod = new TrackedMethod(id, signature, file);
+                    // store method positions (1-based) for later mapping of edits
+                    callable.getBegin().ifPresent(b -> trackedMethod.setStartLine(b.line));
+                    callable.getEnd().ifPresent(e -> trackedMethod.setEndLine(e.line));
                     currentMethods.add(trackedMethod);
                     methodAstMap.put(trackedMethod, callable);
                 });
@@ -91,12 +94,22 @@ public class MethodTracker {
             fingerprintCount.put(fp, fingerprintCount.getOrDefault(fp, 0) + 1);
         }
 
+        // set duplication and compute static features; initialize history accumulators
         for (TrackedMethod method : currentMethods) {
             CallableDeclaration<?> callable = methodAstMap.get(method);
             String fp = methodFingerprint.getOrDefault(method, "");
             int dupCount = Math.max(0, fingerprintCount.getOrDefault(fp, 1) - 1);
             method.addFeature("Duplication", dupCount);
-            calculateAllFeatures(method, callable, releaseCommit);
+            // compute static features (LOC, complexity, params)
+            calculateStaticFeatures(method, callable);
+        }
+
+        // Accumulate change history by scanning commits once per release and mapping edits to methods
+        accumulateHistoryForRelease(methodAstMap, releaseCommit);
+
+        // after accumulation, flush history features into each method's feature map
+        for (TrackedMethod method : currentMethods) {
+            method.flushHistoryFeatures();
         }
 
         lastKnownMethods.clear();
@@ -105,8 +118,9 @@ public class MethodTracker {
         return currentMethods;
     }
 
-    private void calculateAllFeatures(TrackedMethod method, CallableDeclaration<?> callable, RevCommit releaseCommit) {
-        int loc = callable.getEnd().map(p -> p.line).orElse(0) - callable.getBegin().map(p -> p.line).orElse(0);
+    private void calculateStaticFeatures(TrackedMethod method, CallableDeclaration<?> callable) {
+        // JavaParser positions are 1-based inclusive: include both begin and end line
+        int loc = callable.getEnd().map(p -> p.line).orElse(0) - callable.getBegin().map(p -> p.line).orElse(0) + 1;
         method.addFeature("LOC", loc);
 
         AtomicInteger complexity = new AtomicInteger(1);
@@ -119,126 +133,110 @@ public class MethodTracker {
         });
         method.addFeature("CyclomaticComplexity", complexity.get());
         method.addFeature("ParameterCount", callable.getParameters().size());
-        method.addFeature("Duplication", 0); // Placeholder until the full release can be analyzed
-
-        try {
-            Map<String, Number> changeFeatures = calculateChangeHistoryFeatures(method, callable, releaseCommit);
-            method.addAllFeatures(changeFeatures);
-        } catch (Exception e) {
-            log.info("Warning: Could not compute full history for method: {}", method.signature());
-            addPlaceholderChangeFeatures(method);
-        }
+        // Duplication already set earlier
     }
 
-    // Piccolo contenitore per accumulare i contatori
-    private static final class ChangeStats {
-        int revisions = 0;
-        final Set<String> authors = new HashSet<>();
-        int linesAdded = 0;
-        int linesDeleted = 0;
-        int maxChurn = 0;
-        int totalChurn = 0; // per la media
-    }
-
-
-    private ChangeStats collectChangeStats(
-            String filepath,
-            int methodStartLine,
-            int methodEndLine,
+    /** Scan commits for the release and accumulate edits into tracked methods */
+    private void accumulateHistoryForRelease(
+            Map<TrackedMethod, CallableDeclaration<?>> methodAstMap,
             RevCommit releaseCommit
     ) throws IOException {
 
-        ChangeStats stats = new ChangeStats();
         Repository repo = git.getRepository();
         try (RevWalk walk = new RevWalk(repo);
              DiffFormatter fmt = newDiffFormatter(repo)) {
 
             walk.markStart(releaseCommit);
 
+            // build index of methods by filepath for quick lookup
+            Map<String, List<TrackedMethod>> methodsByFile = new HashMap<>();
+            for (TrackedMethod tm : methodAstMap.keySet()) {
+                methodsByFile.computeIfAbsent(tm.filepath(), k -> new ArrayList<>()).add(tm);
+            }
+
+            final int MAX_EDIT_LINES = 200; // cap per edit to avoid huge single-hunk inflation
             for (RevCommit commit : walk) {
+                if (commit.getParentCount() == 0) continue;
 
-                if (commit.getParentCount() > 0) {
+                RevCommit parent = walk.parseCommit(commit.getParent(0).getId());
+                List<DiffEntry> diffs = fmt.scan(parent.getTree(), commit.getTree());
 
-                    CommitChurn churn = computeCommitChurn(
-                            fmt, walk, commit,
-                            filepath, methodStartLine, methodEndLine
-                    );
+                // For this commit, we will aggregate edits per method to ensure NR is counted once
+                Map<TrackedMethod, int[]> perMethodAccumulator = new IdentityHashMap<>();
 
-                    if (churn.touched) {
-                        stats.revisions++;
-                        stats.authors.add(churn.authorEmail);
-                        stats.linesAdded   += churn.linesAdded;
-                        stats.linesDeleted += churn.linesDeleted;
-                        stats.totalChurn   += churn.totalChurn;
-                        if (churn.totalChurn > stats.maxChurn) {
-                            stats.maxChurn = churn.totalChurn;
+                // dedupe edits per commit/path/begin/end to avoid double counting
+                Set<String> seenEdits = new HashSet<>();
+
+                for (DiffEntry diff : diffs) {
+                    String path = diff.getNewPath() == null ? diff.getOldPath() : diff.getNewPath();
+                    List<TrackedMethod> methods = methodsByFile.get(path);
+                    if (methods == null || methods.isEmpty()) continue;
+
+                    FileHeader header = fmt.toFileHeader(diff);
+                    List<Edit> edits = header.toEditList();
+
+                    for (Edit edit : edits) {
+                        // dedupe key
+                        String editKey = commit.getName() + ":" + path + ":" + edit.getBeginA() + "," + edit.getEndA() + ":" + edit.getBeginB() + "," + edit.getEndB();
+                        if (seenEdits.contains(editKey)) continue;
+                        seenEdits.add(editKey);
+
+                        // convert to 1-based inclusive range for comparison
+                        int editBegin = edit.getBeginB() + 1;
+                        int editEnd = edit.getEndB(); // end is exclusive in JGit; treat as inclusive upper bound
+
+                        boolean mappedAny = false;
+                        int addedRaw = linesAdded(edit);
+                        int deletedRaw = linesDeleted(edit);
+                        int added = Math.min(addedRaw, MAX_EDIT_LINES);
+                        int deleted = Math.min(deletedRaw, MAX_EDIT_LINES);
+                        int churn = added + deleted;
+
+                        for (TrackedMethod tm : methods) {
+                            if (!tm.hasPosition()) continue;
+                            int mStart = tm.getStartLine();
+                            int mEnd = tm.getEndLine();
+                            if (Math.max(mStart, editBegin) <= Math.min(mEnd, editEnd)) {
+                                // accumulate per-method for this commit
+                                int[] acc = perMethodAccumulator.computeIfAbsent(tm, k -> new int[3]);
+                                acc[0] += added;    // added
+                                acc[1] += deleted;  // deleted
+                                acc[2] += churn;    // total churn for this commit
+                                mappedAny = true;
+                                // continue: an edit may overlap multiple methods
+                            }
+                        }
+
+                        if (!mappedAny) {
+                            log.debug("Edit {}-{} in {} not mapped to any method", editBegin, editEnd, path);
                         }
                     }
                 }
+
+                // After processing all diffs/edits for this commit, flush accumulators into methods
+                for (Map.Entry<TrackedMethod, int[]> e : perMethodAccumulator.entrySet()) {
+                    TrackedMethod tm = e.getKey();
+                    int[] acc = e.getValue();
+                    int added = acc[0];
+                    int deleted = acc[1];
+                    int total = acc[2];
+                    // count this commit as one revision touching the method
+                    tm.incrNr();
+                    tm.addAuthor(commit.getAuthorIdent().getEmailAddress());
+                    tm.addStmtAdded(added);
+                    tm.addStmtDeleted(deleted);
+                    // totalChurn remains sum of added+deleted across history
+                    tm.addTotalChurn(total);
+                    // maxChurn should be based on net change (added - deleted) per commit
+                    int net = added - deleted;
+                    tm.updateMaxChurn(net);
+                }
             }
         }
-
-        return stats;
     }
 
-    /* ========= Helper & DTO interni ========= */
-
-    private static final class CommitChurn {
-        final String authorEmail;
-        boolean touched = false;
-        int linesAdded = 0;
-        int linesDeleted = 0;
-        int totalChurn = 0;
-
-        CommitChurn(String authorEmail) {
-            this.authorEmail = authorEmail;
-        }
-    }
-
-    private CommitChurn computeCommitChurn(
-            DiffFormatter fmt,
-            RevWalk walk,
-            RevCommit commit,
-            String filepath,
-            int methodStartLine,
-            int methodEndLine
-    ) throws IOException {
-
-        RevCommit parent = walk.parseCommit(commit.getParent(0).getId());
-        List<DiffEntry> diffs = fmt.scan(parent.getTree(), commit.getTree());
-
-        CommitChurn churn = new CommitChurn(commit.getAuthorIdent().getEmailAddress());
-
-        for (DiffEntry diff : diffs) {
-            if (!affectsFile(diff, filepath)) {
-                continue;
-            }
-            FileHeader header = fmt.toFileHeader(diff);
-            accumulateEdits(churn, header.toEditList(), methodStartLine, methodEndLine);
-        }
-        return churn;
-    }
-
-    private static void accumulateEdits(
-            CommitChurn churn,
-            List<Edit> edits,
-            int methodStartLine,
-            int methodEndLine
-    ) {
-        for (Edit edit : edits) {
-            if (!overlapsMethod(methodStartLine, methodEndLine, edit)) {
-                continue;
-            }
-            churn.touched = true;
-
-            int added   = linesAdded(edit);
-            int deleted = linesDeleted(edit);
-
-            churn.linesAdded  += added;
-            churn.linesDeleted += deleted;
-            churn.totalChurn  += added + deleted;
-        }
-    }
+    // Piccolo contenitore per accumulare i contatori
+    // Old per-commit helpers removed; accumulation performed in accumulateHistoryForRelease
 
     private static DiffFormatter newDiffFormatter(Repository repo) {
         DiffFormatter fmt = new DiffFormatter(DisabledOutputStream.INSTANCE);
@@ -247,10 +245,12 @@ public class MethodTracker {
     }
 
     private static int linesAdded(Edit edit) {
+        // JGit Edit indices are 0-based and end is exclusive. Number of added lines is endB - beginB.
         return Math.max(0, edit.getEndB() - edit.getBeginB());
     }
 
     private static int linesDeleted(Edit edit) {
+        // Number of deleted lines is endA - beginA (0-based, end exclusive).
         return Math.max(0, edit.getEndA() - edit.getBeginA());
     }
 
@@ -262,62 +262,17 @@ public class MethodTracker {
 
     /** Overlap semplice tra il range del metodo e il range della edit nella "B side" (post-change). */
     private static boolean overlapsMethod(int methodStart, int methodEnd, Edit edit) {
-        int changeStart = edit.getBeginB();
-        int changeEnd = edit.getEndB();
+        // JavaParser line numbers are 1-based inclusive. JGit Edit uses 0-based indices
+        // with end exclusive. Convert begin to 1-based inclusive to compare ranges.
+        int changeStart = edit.getBeginB() + 1; // convert 0-based -> 1-based
+        int changeEnd = edit.getEndB();        // end is exclusive in JGit; using as-is maps to inclusive 1-based
         return Math.max(methodStart, changeStart) <= Math.min(methodEnd, changeEnd);
     }
 
     /**
      * Accurately calculates all change history features by analyzing git diffs.
      */
-    private Map<String, Number> calculateChangeHistoryFeatures(
-            TrackedMethod trackedMethod,
-            CallableDeclaration<?> callable,
-            RevCommit releaseCommit
-    ) throws IOException {
-
-        if (trackedMethod == null || callable == null || releaseCommit == null) {
-            return getPlaceholderChangeFeatures();
-        }
-
-        final int methodStartLine = callable.getBegin().map(p -> p.line).orElse(-1);
-        final int methodEndLine   = callable.getEnd().map(p -> p.line).orElse(-1);
-        if (methodStartLine < 0 || methodEndLine < 0) {
-            return getPlaceholderChangeFeatures();
-        }
-
-        final ChangeStats stats = collectChangeStats(
-                trackedMethod.filepath(),
-                methodStartLine,
-                methodEndLine,
-                releaseCommit
-        );
-
-        Map<String, Number> features = new HashMap<>();
-        features.put("NR",        stats.revisions);
-        features.put("NAuth",     stats.authors.size());
-        features.put("stmtAdded", stats.linesAdded);
-        features.put("stmtDeleted", stats.linesDeleted);
-        features.put("maxChurn",  stats.maxChurn);
-        features.put("avgChurn",  stats.revisions == 0 ? 0.0 : (double) stats.totalChurn / stats.revisions);
-        return features;
-    }
-
-
-    private Map<String, Number> getPlaceholderChangeFeatures() {
-        Map<String, Number> features = new HashMap<>();
-        features.put("NR", 0);
-        features.put("NAuth", 0);
-        features.put("stmtAdded", 0);
-        features.put("stmtDeleted", 0);
-        features.put("maxChurn", 0);
-        features.put("avgChurn", 0);
-        return features;
-    }
-
-    private void addPlaceholderChangeFeatures(TrackedMethod method) {
-        method.addAllFeatures(getPlaceholderChangeFeatures());
-    }
+    // Old calculateChangeHistoryFeatures / placeholders removed: history now stored in TrackedMethod
 
     private static String sha256(String s) {
         try {

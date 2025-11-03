@@ -53,9 +53,62 @@ public class GitConnector {
             repository = git.getRepository();
         } else {
             log.info("Cloning {} to {}...", remoteUrl, localPath);
-            git = Git.cloneRepository().setURI(remoteUrl).setDirectory(localDir).call();
+                // clone with all branches/tags
+                git = Git.cloneRepository().setURI(remoteUrl).setDirectory(localDir).setCloneAllBranches(true).call();
             repository = git.getRepository();
             log.info("Clone complete.");
+        }
+
+        // Ensure repository has a HEAD; if not try to fetch and checkout a sensible branch (main/master)
+        try {
+            ObjectId head = repository.resolve("HEAD");
+            if (head == null) {
+                log.warn("Repository at {} has no HEAD. Attempting to fetch remote branches and checkout a default branch.", localPath);
+                try {
+                    git.fetch().setRemote("origin").setRefSpecs(new ArrayList<>()).call();
+                } catch (Exception ex) {
+                    log.warn("Fetching remote failed: {}", ex.getMessage());
+                }
+
+                // try checkout 'main' then 'master'
+                boolean checkedOut = false;
+                try {
+                    git.checkout().setCreateBranch(true).setName("main").setStartPoint("origin/main").call();
+                    checkedOut = true;
+                } catch (Exception ignored) {
+                }
+                if (!checkedOut) {
+                    try {
+                        git.checkout().setCreateBranch(true).setName("master").setStartPoint("origin/master").call();
+                        checkedOut = true;
+                    } catch (Exception ignored) {
+                    }
+                }
+
+                // fallback: pick first remote branch
+                if (!checkedOut) {
+                    try {
+                        // try to list remote refs and pick a sensible branch
+                        Collection<Ref> remoteRefs = git.lsRemote().setHeads(true).call();
+                        if (!remoteRefs.isEmpty()) {
+                            String remoteRef = remoteRefs.iterator().next().getName(); // refs/heads/branch
+                            String branchName = remoteRef.substring(remoteRef.lastIndexOf('/') + 1);
+                            git.checkout().setCreateBranch(true).setName(branchName).setStartPoint("origin/" + branchName).call();
+                            checkedOut = true;
+                        }
+                    } catch (Exception ex) {
+                        log.warn("Failed to checkout a remote branch automatically: {}", ex.getMessage());
+                    }
+                }
+
+                if (!checkedOut) {
+                    log.warn("Could not checkout any branch automatically for {}. Some git operations may fail.", localPath);
+                } else {
+                    repository = git.getRepository();
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Error while checking HEAD for {}: {}", localPath, e.getMessage());
         }
     }
 
@@ -162,18 +215,61 @@ public class GitConnector {
         for (JiraTicket ticket : tickets) {
             ticketMap.put(ticket.getKey(), ticket);
         }
-        Iterable<RevCommit> commits = git.log().all().call();
-        for (RevCommit commit : commits) {
-            Matcher matcher = pattern.matcher(commit.getFullMessage());
-            while (matcher.find()) {
-                String ticketKey = matcher.group(1);
-                if (ticketMap.containsKey(ticketKey)) {
-                    JiraTicket ticket = ticketMap.get(ticketKey);
-                    if (ticket.getFixCommitHash() == null) {
-                        ticket.setFixCommitHash(commit.getName());
-                        ticket.setResolutionDate(LocalDateTime.ofInstant(commit.getAuthorIdent().getWhenAsInstant(), ZoneId.systemDefault()));
+        Iterable<RevCommit> commits = null;
+        try {
+            commits = git.log().all().call();
+        } catch (org.eclipse.jgit.api.errors.NoHeadException nhe) {
+            log.warn("No HEAD found when scanning git log; attempting fetch and retry...");
+            try {
+                git.fetch().setRemote("origin").call();
+                commits = git.log().all().call();
+            } catch (Exception ex) {
+                log.error("Failed to recover git log after fetch: {}", ex.getMessage());
+            }
+        }
+
+        if (commits != null) {
+            for (RevCommit commit : commits) {
+                Matcher matcher = pattern.matcher(commit.getFullMessage());
+                while (matcher.find()) {
+                    String ticketKey = matcher.group(1);
+                    if (ticketMap.containsKey(ticketKey)) {
+                        JiraTicket ticket = ticketMap.get(ticketKey);
+                        if (ticket.getFixCommitHash() == null) {
+                            ticket.setFixCommitHash(commit.getName());
+                            ticket.setResolutionDate(LocalDateTime.ofInstant(commit.getAuthorIdent().getWhenAsInstant(), ZoneId.systemDefault()));
+                        }
                     }
                 }
+            }
+        } else {
+            log.warn("No commits available from git.log(); attempting to iterate branch refs as a fallback...");
+            try {
+                Collection<Ref> heads = repository.getRefDatabase().getRefsByPrefix("refs/heads/");
+                for (Ref head : heads) {
+                    try {
+                        ObjectId id = repository.resolve(head.getName());
+                        if (id == null) continue;
+                        Iterable<RevCommit> branchCommits = git.log().add(id).call();
+                        for (RevCommit commit : branchCommits) {
+                            Matcher matcher = pattern.matcher(commit.getFullMessage());
+                            while (matcher.find()) {
+                                String ticketKey = matcher.group(1);
+                                if (ticketMap.containsKey(ticketKey)) {
+                                    JiraTicket ticket = ticketMap.get(ticketKey);
+                                    if (ticket.getFixCommitHash() == null) {
+                                        ticket.setFixCommitHash(commit.getName());
+                                        ticket.setResolutionDate(LocalDateTime.ofInstant(commit.getAuthorIdent().getWhenAsInstant(), ZoneId.systemDefault()));
+                                    }
+                                }
+                            }
+                        }
+                    } catch (Exception ex) {
+                        // continue to next head
+                    }
+                }
+            } catch (Exception ex) {
+                log.warn("Fallback branch iteration failed: {}", ex.getMessage());
             }
         }
         log.info("Finished scanning git log.");

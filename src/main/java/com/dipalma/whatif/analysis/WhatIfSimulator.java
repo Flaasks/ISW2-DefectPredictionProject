@@ -1,17 +1,11 @@
 package com.dipalma.whatif.analysis;
 
 import com.dipalma.whatif.classification.ClassifierRunner;
-import org.apache.commons.csv.CSVFormat;
-import org.apache.commons.csv.CSVParser;
-import org.apache.commons.csv.CSVRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import weka.classifiers.Classifier;
 import weka.core.Instances;
-import weka.core.converters.CSVLoader;
 
-import java.io.File;
-import java.io.FileReader;
 import java.io.FileWriter;
 import java.text.DecimalFormat;
 import java.util.LinkedHashMap;
@@ -41,55 +35,32 @@ public class WhatIfSimulator {
         String topFeature = opt.get();
         log.info("Top actionable feature: {}", topFeature);
 
-        // 2) split datasets and create B using DatasetSplitter
-        String prefix = processedCsvPath.replaceAll("_processed\\.csv$", "");
-        DatasetSplitter.split(processedCsvPath, prefix, topFeature);
+        // 2) split datasets in memory and create B set
+        DatasetSplitter.InMemorySplit split = DatasetSplitter.splitInMemory(processedCsvPath, topFeature);
 
-        // 3) Train best classifier on A_train
-        String aTrain = prefix + "_A_train.csv";
-        ClassifierRunner runner = new ClassifierRunner(aTrain);
-        // load and prepare done inside trainBestClassifier by passing Instances
-        CSVLoader loader = new CSVLoader();
-        loader.setSource(new File(aTrain));
-        Instances trainData = loader.getDataSet();
-        trainData.setClassIndex(trainData.numAttributes() - 1);
-
+        // 3) Train best classifier on A_train (in-memory)
+        ClassifierRunner runner = new ClassifierRunner(processedCsvPath); // path kept for logging only
+        Instances trainData = split.train;
         Classifier cls = runner.trainBestClassifier(trainData);
         if (cls == null) {
-            log.error("trainBestClassifier returned null for {}", aTrain);
+            log.error("trainBestClassifier returned null for {}", processedCsvPath);
             return;
         }
-
-        // 4) Predict on A_test, B+, B, C
-        Map<String, String> datasets = new LinkedHashMap<>();
-        datasets.put("A", prefix + "_A_test.csv");
-        datasets.put("B+", prefix + "_Bplus.csv");
-        datasets.put("B", prefix + "_B.csv");
-        datasets.put("C", prefix + "_C.csv");
-
+        // 4) Predict in-memory and compute counts for A_test, B+, B, C
         Map<String, Integer> actual = new LinkedHashMap<>();
         Map<String, Integer> predicted = new LinkedHashMap<>();
 
-        for (var e : datasets.entrySet()) {
-            String name = e.getKey();
-            String path = e.getValue();
-            String out = path.replace(".csv", "_pred.csv");
-            // predict (this will also validate header consistency)
-            runner.predictToCsv(cls, path, out);
+        int[] aCounts = runner.actualAndPredicted(cls, split.test);
+        actual.put("A", aCounts[0]); predicted.put("A", aCounts[1]);
 
-            // compute counts
-            try (CSVParser parser = CSVFormat.DEFAULT.withFirstRecordAsHeader().parse(new FileReader(out))) {
-                int act = 0, pred = 0;
-                for (CSVRecord r : parser) {
-                    String a = r.get("IsBuggy");
-                    String p = r.get("PredictedIsBuggy");
-                    if (a != null && (a.equalsIgnoreCase("yes") || a.equalsIgnoreCase("true") || a.equals("1"))) act++;
-                    if (p != null && (p.equalsIgnoreCase("yes") || p.equalsIgnoreCase("true") || p.equals("1"))) pred++;
-                }
-                actual.put(name, act);
-                predicted.put(name, pred);
-            }
-        }
+        int[] bPlusCounts = runner.actualAndPredicted(cls, split.bPlus);
+        actual.put("B+", bPlusCounts[0]); predicted.put("B+", bPlusCounts[1]);
+
+        int[] bCounts = runner.actualAndPredicted(cls, split.b);
+        actual.put("B", bCounts[0]); predicted.put("B", bCounts[1]);
+
+        int[] cCounts = runner.actualAndPredicted(cls, split.c);
+        actual.put("C", cCounts[0]); predicted.put("C", cCounts[1]);
 
         // 5) Compute Drop and Reduction and write summary
         int bplusPred = predicted.getOrDefault("B+", 0);
@@ -97,18 +68,27 @@ public class WhatIfSimulator {
         int aActual = actual.getOrDefault("A", 0);
         int drop = Math.max(0, bplusPred - bPred);
         double dropPct = bplusPred == 0 ? 0.0 : (drop * 100.0) / bplusPred;
-        double reductionPct = aActual == 0 ? 0.0 : (drop * 100.0) / aActual;
+        double rawReductionPct = aActual == 0 ? 0.0 : (drop * 100.0) / aActual;
+        // Reduction represents the share of actual buggy instances in A that would be removed.
+        // Cap at 100% because you cannot reduce more than the total actual buggy instances.
+        double reductionPct = Math.min(100.0, rawReductionPct);
+        if (rawReductionPct > 100.0) {
+            log.warn("Computed raw reduction {}% is >100% (drop={} aActual={}). Capping to 100%.", rawReductionPct, drop, aActual);
+        }
 
         DecimalFormat df = new DecimalFormat("0.##");
-        String summary = prefix + "_whatif_summary.csv";
+    String prefix = processedCsvPath.replaceAll("_processed\\.csv$", "");
+    String summary = prefix + "_whatif_summary.csv";
         try (FileWriter fw = new FileWriter(summary)) {
             fw.write("Dataset,Actual,Predicted\n");
             for (String k : actual.keySet()) fw.write(k + "," + actual.get(k) + "," + predicted.get(k) + "\n");
             fw.write("Drop," + drop + "," + df.format(dropPct) + "%\n");
-            fw.write("Reduction," + drop + "," + df.format(reductionPct) + "%\n");
+            // write both raw and capped reduction to help debugging if needed
+            fw.write("ReductionRaw," + drop + "," + df.format(rawReductionPct) + "%\n");
+            fw.write("ReductionCapped," + drop + "," + df.format(reductionPct) + "%\n");
         }
 
         log.info("What-if analysis complete for {}. Summary written to {}", processedCsvPath, summary);
-        log.info("Drop = {} ({}%), Reduction = {}%", drop, df.format(dropPct), df.format(reductionPct));
+        log.info("Drop = {} ({}%), Reduction = {}% (raw={}%)", drop, df.format(dropPct), df.format(reductionPct), df.format(rawReductionPct));
     }
 }

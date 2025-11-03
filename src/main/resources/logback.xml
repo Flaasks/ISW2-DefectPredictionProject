@@ -7,4 +7,6 @@
     <root level="INFO">
         <appender-ref ref="CONSOLE"/>
     </root>
+    <!-- Silence noisy native-netlib warnings when native libs are not present -->
+    <logger name="com.github.fommil.netlib" level="ERROR" />
 </configuration>

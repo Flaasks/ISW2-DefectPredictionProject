@@ -9,6 +9,9 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.io.Reader;
 import java.util.*;
+import weka.core.Instances;
+import weka.core.converters.CSVLoader;
+import java.io.File;
 
 public class DatasetSplitter {
 
@@ -103,6 +106,55 @@ public class DatasetSplitter {
             }
             writeCsv(outPrefix + "_B.csv", headers, b);
             System.out.println("DatasetSplitter: zeroed feature '" + topFeature + "' in B for " + modified + " rows.");
+        }
+    }
+
+    /**
+     * Split input CSV in memory and return Instances for train/test and B+/B/C as file paths are optional.
+     */
+    public static InMemorySplit splitInMemory(String inputCsv, String actionableFeature) throws Exception {
+        // Load as Instances
+        CSVLoader loader = new CSVLoader();
+        loader.setSource(new File(inputCsv));
+        Instances all = loader.getDataSet();
+        if (all.classIndex() == -1) all.setClassIndex(all.numAttributes() - 1);
+
+        // Stratified split in memory
+        all.randomize(new Random(42));
+        if (all.classAttribute().isNominal()) all.stratify(5); // small stratify to keep groups
+
+        int trainSize = (int) Math.round(all.numInstances() * 0.8);
+        if (trainSize < 1 && all.numInstances() > 0) trainSize = 1;
+        Instances train = new Instances(all, 0, trainSize);
+        Instances test = new Instances(all, trainSize, all.numInstances() - trainSize);
+
+        // Create B+ and C by filtering on actionableFeature
+        Instances bPlus = new Instances(all, 0);
+        Instances c = new Instances(all, 0);
+        int featureIndex = all.attribute(actionableFeature) != null ? all.attribute(actionableFeature).index() : -1;
+        for (int i = 0; i < all.numInstances(); i++) {
+            double val = featureIndex >= 0 ? all.instance(i).value(featureIndex) : 0.0;
+            if (val > 0.0) bPlus.add(all.instance(i)); else c.add(all.instance(i));
+        }
+
+        // Create B by copying B+ and setting top feature to 0
+        Instances b = new Instances(bPlus);
+        if (featureIndex >= 0) {
+            for (int i = 0; i < b.numInstances(); i++) b.instance(i).setValue(featureIndex, 0.0);
+        }
+
+        return new InMemorySplit(train, test, bPlus, b, c);
+    }
+
+    public static class InMemorySplit {
+        public final Instances train;
+        public final Instances test;
+        public final Instances bPlus;
+        public final Instances b;
+        public final Instances c;
+
+        public InMemorySplit(Instances train, Instances test, Instances bPlus, Instances b, Instances c) {
+            this.train = train; this.test = test; this.bPlus = bPlus; this.b = b; this.c = c;
         }
     }
 

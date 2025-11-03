@@ -21,27 +21,46 @@ public class Main {
         final String BK_PROCESSED = "BOOKKEEPER_processed.csv";
         final String SN_PROCESSED = "SYNCOPE_processed.csv";
 
+    java.io.File bkProcessed = new java.io.File(BK_PROCESSED);
+    java.io.File snProcessed = new java.io.File(SN_PROCESSED);
+
 
         try {
 
 
             // --- STAGE 1: DATASET CREATION ---
             log.info("--- [1/3] CREATING DATASETS ---");
-            DatasetGenerator bookkeeperGenerator = new DatasetGenerator("BOOKKEEPER", "https://github.com/apache/bookkeeper.git");
-            bookkeeperGenerator.generateCsv();
+            if (bkProcessed.exists()) {
+                log.info("Found existing {} - skipping dataset generation.", BK_PROCESSED);
+            } else {
+                DatasetGenerator bookkeeperGenerator = new DatasetGenerator("BOOKKEEPER", "https://github.com/apache/bookkeeper.git");
+                bookkeeperGenerator.generateCsv();
+            }
 
-            DatasetGenerator syncopeGenerator = new DatasetGenerator("SYNCOPE", "https://github.com/apache/syncope.git");
-            syncopeGenerator.generateCsv();
+            if (snProcessed.exists()) {
+                log.info("Found existing {} - skipping dataset generation.", SN_PROCESSED);
+            } else {
+                DatasetGenerator syncopeGenerator = new DatasetGenerator("SYNCOPE", "https://github.com/apache/syncope.git");
+                syncopeGenerator.generateCsv();
+            }
             log.info("--- DATASET CREATION COMPLETE ---");
 
 
             // --- STAGE 2: DATA PREPROCESSING ---
             log.info("--- [2/3] PREPROCESSING DATASETS ---");
-            DataPreprocessor bookkeeperProcessor = new DataPreprocessor("BOOKKEEPER.csv");
-            bookkeeperProcessor.processData();
+            if (bkProcessed.exists()) {
+                log.info("Skipping preprocessing for BOOKKEEPER because {} already exists", BK_PROCESSED);
+            } else {
+                DataPreprocessor bookkeeperProcessor = new DataPreprocessor("BOOKKEEPER.csv");
+                bookkeeperProcessor.processData();
+            }
 
-            DataPreprocessor syncopeProcessor = new DataPreprocessor("SYNCOPE.csv");
-            syncopeProcessor.processData();
+            if (snProcessed.exists()) {
+                log.info("Skipping preprocessing for SYNCOPE because {} already exists", SN_PROCESSED);
+            } else {
+                DataPreprocessor syncopeProcessor = new DataPreprocessor("SYNCOPE.csv");
+                syncopeProcessor.processData();
+            }
             log.info("--- PREPROCESSING COMPLETE ---");
 
 
@@ -50,8 +69,8 @@ public class Main {
             ClassifierRunner bookkeeperRunner = new ClassifierRunner(BK_PROCESSED);
             bookkeeperRunner.runClassification();
 
-            ClassifierRunner syncopeRunner = new ClassifierRunner(SN_PROCESSED);
-            syncopeRunner.runClassification();
+            //ClassifierRunner syncopeRunner = new ClassifierRunner(SN_PROCESSED);
+            //syncopeRunner.runClassification();
             log.info("--- CLASSIFIER EVALUATION COMPLETE ---");
 
             // --- STAGE 4: FEATURE & METHOD SELECTION (NEW STEP) ---
@@ -61,10 +80,10 @@ public class Main {
             String bkSelectedMethod = bookkeeperAnalyzer.getSelectedMethodName();
             log.info("Bookkeeper selected AFMethod: {}", bkSelectedMethod);
 
-            DataAnalyzer syncopeAnalyzer = new DataAnalyzer("SYNCOPE.csv", SN_PROCESSED);
-            syncopeAnalyzer.findActionableFeatureAndMethod();
-            String snSelectedMethod = syncopeAnalyzer.getSelectedMethodName();
-            log.info("Syncope selected AFMethod: {}", snSelectedMethod);
+            //DataAnalyzer syncopeAnalyzer = new DataAnalyzer("SYNCOPE.csv", SN_PROCESSED);
+            //syncopeAnalyzer.findActionableFeatureAndMethod();
+            //String snSelectedMethod = syncopeAnalyzer.getSelectedMethodName();
+            //log.info("Syncope selected AFMethod: {}", snSelectedMethod);
             log.info("--- FEATURE & METHOD SELECTION COMPLETE ---");
 
 
@@ -80,9 +99,9 @@ public class Main {
             comparer.compareMethods(bookkeeperOriginal, bookkeeperRefactored);
 
             // --- Analysis for Syncope ---
-            String syncopeOriginal = "src/main/java/com/dipalma/whatif/Syncope_Original.txt";
-            String syncopeRefactored = "src/main/java/com/dipalma/whatif/Syncope_Refactored.txt";
-            comparer.compareMethods(syncopeOriginal, syncopeRefactored);
+            //String syncopeOriginal = "src/main/java/com/dipalma/whatif/Syncope_Original.txt";
+            //String syncopeRefactored = "src/main/java/com/dipalma/whatif/Syncope_Refactored.txt";
+            //comparer.compareMethods(syncopeOriginal, syncopeRefactored);
 
             // STAGE 3: FINAL WHAT-IF ANALYSIS
             log.info("--- What-if Analysis ---");

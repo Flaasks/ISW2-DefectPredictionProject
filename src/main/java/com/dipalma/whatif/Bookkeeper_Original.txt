@@ -172,7 +172,7 @@ public static void main(String[] args)
     // now get the latencies
     LOG.info("99th percentile latency: {}", percentile(latency, 99));
     LOG.info("95th percentile latency: {}", percentile(latency, 95));
-
+    
     bench.close();
     timeouter.cancel();
 }

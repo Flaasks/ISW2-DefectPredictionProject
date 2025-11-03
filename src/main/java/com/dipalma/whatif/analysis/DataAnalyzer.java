@@ -99,7 +99,7 @@ public class DataAnalyzer {
 
     private void findHighImpactMethod(String aFeature) throws IOException {
         Reader in = new FileReader(originalCsvPath);
-        CSVParser parser = CSVFormat.DEFAULT.withFirstRecordAsHeader().parse(in);
+        CSVParser parser = CSVFormat.DEFAULT.builder().setHeader().setSkipHeaderRecord(true).build().parse(in);
         List<CSVRecord> records = parser.getRecords();
 
         if (records.isEmpty()) {

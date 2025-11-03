@@ -1,7 +1,8 @@
 Dataset,Actual,Predicted
-A,122,418
-B+,0,0
-B,0,0
-C,611,2318
-Drop,0,0%
-Reduction,0,0%
+A,123,249
+B+,603,1208
+B,603,255
+C,8,33
+Drop,953,78.89%
+ReductionRaw,953,774.8%
+ReductionCapped,953,100%

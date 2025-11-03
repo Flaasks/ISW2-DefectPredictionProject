@@ -34,8 +34,12 @@ public class FeatureComparer {
         log.info("Analyzing original file: {}", originalFilePath);
         Map<String, Number> featuresBefore = extractFeaturesFromFile(originalFilePath);
 
-        log.info("Analyzing refactored file: {}", refactoredFilePath);
-        Map<String, Number> featuresAfter = extractFeaturesFromFile(refactoredFilePath);
+    log.info("Analyzing refactored file: {}", refactoredFilePath);
+    Map<String, Number> featuresAfter = extractFeaturesFromFile(refactoredFilePath);
+
+    // Per requisito: quando si compara l'originale con il refactor, NR e NAuth devono aumentare di 1
+    featuresAfter.put("NR", featuresAfter.getOrDefault("NR", 1).intValue() + 1);
+    featuresAfter.put("NAuth", featuresAfter.getOrDefault("NAuth", 1).intValue() + 1);
 
         printComparison(featuresBefore, featuresAfter);
     }
@@ -69,7 +73,8 @@ public class FeatureComparer {
     private Map<String, Number> calculateFeatures(CallableDeclaration<?> callable) {
         Map<String, Number> features = new HashMap<>();
 
-        int loc = callable.getEnd().map(p -> p.line).orElse(0) - callable.getBegin().map(p -> p.line).orElse(0);
+    // JavaParser positions are 1-based inclusive: include both begin and end line
+    int loc = callable.getEnd().map(p -> p.line).orElse(0) - callable.getBegin().map(p -> p.line).orElse(0) + 1;
         features.put("LOC", loc);
 
         AtomicInteger complexity = new AtomicInteger(1);
@@ -83,9 +88,10 @@ public class FeatureComparer {
         features.put("CyclomaticComplexity", complexity.get());
         features.put("ParameterCount", callable.getParameters().size());
 
-        features.put("Duplication", 0);
-        features.put("NR", 2);
-        features.put("NAuth", 2);
+    features.put("Duplication", 0);
+    // baseline history values for standalone snippets
+    features.put("NR", 1);
+    features.put("NAuth", 1);
 
         return features;
     }

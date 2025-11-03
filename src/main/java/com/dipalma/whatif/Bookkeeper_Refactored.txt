@@ -1,21 +1,129 @@
-    public static void main(String[] args) {
-        Options options = buildOptions();
-        CommandLineParser parser = new PosixParser();
+public static void main(String[] args)
+        throws KeeperException, IOException, InterruptedException, ParseException, BKException {
+    Options options = new Options();
+    options.addOption("time", true, "Running time (seconds), default 60");
+    options.addOption("entrysize", true, "Entry size (bytes), default 1024");
+    options.addOption("ensemble", true, "Ensemble size, default 3");
+    options.addOption("quorum", true, "Quorum size, default 2");
+    options.addOption("ackQuorum", true, "Ack quorum size, default is same as quorum");
+    options.addOption("throttle", true, "Max outstanding requests, default 10000");
+    options.addOption("ledgers", true, "Number of ledgers, default 1");
+    options.addOption("zookeeper", true, "Zookeeper ensemble, default \"localhost:2181\"");
+    options.addOption("password", true, "Password used to create ledgers (default 'benchPasswd')");
+    options.addOption("coordnode", true, "Coordination znode for multi client benchmarks (optional)");
+    options.addOption("timeout", true, "Number of seconds after which to give up");
+    options.addOption("sockettimeout", true, "Socket timeout for bookkeeper client. In seconds. Default 5");
+    options.addOption("skipwarmup", false, "Skip warm up, default false");
 
-        try {
-            CommandLine cmd = parser.parse(options, args);
-            if (cmd.hasOption("help")) {
-                new HelpFormatter().printHelp("BenchThroughputLatency <options>", options);
-                return;
+    CommandLineParser parser = new PosixParser();
+    CommandLine cmd = parser.parse(options, args);
+    if (cmd.hasOption("help")) {
+        new HelpFormatter().printHelp("BenchThroughputLatency <options>", options);
+        System.exit(-1);
+    }
+
+    long runningTime = Long.valueOf(cmd.getOptionValue("time", "60"));
+    String servers = cmd.getOptionValue("zookeeper", "localhost:2181");
+    int entrysize = Integer.valueOf(cmd.getOptionValue("entrysize", "1024"));
+    int ledgers = Integer.valueOf(cmd.getOptionValue("ledgers", "1"));
+    int ensemble = Integer.valueOf(cmd.getOptionValue("ensemble", "3"));
+    int quorum = Integer.valueOf(cmd.getOptionValue("quorum", "2"));
+    int ackQuorum = cmd.hasOption("ackQuorum") ? Integer.valueOf(cmd.getOptionValue("ackQuorum")) : quorum;
+    int throttle = Integer.valueOf(cmd.getOptionValue("throttle", "10000"));
+    int sendLimit = Integer.valueOf(cmd.getOptionValue("sendlimit", "20000000"));
+    final int sockTimeout = Integer.valueOf(cmd.getOptionValue("sockettimeout", "5"));
+    String coordinationZnode = cmd.getOptionValue("coordnode");
+    final byte[] passwd = cmd.getOptionValue("password", "benchPasswd").getBytes();
+    String latencyFile = cmd.getOptionValue("latencyFile", "latencyDump.dat");
+    long totalTime = runningTime * 1000;
+
+    Timer timeouter = new Timer();
+    if (cmd.hasOption("timeout")) {
+        final long timeout = Long.valueOf(cmd.getOptionValue("timeout", "360")) * 1000;
+        timeouter.schedule(new TimerTask() {
+            public void run() {
+                System.err.println("Timing out benchmark after " + timeout + "ms");
+                System.exit(-1);
             }
+        }, timeout);
+    }
 
-            BenchmarkConfig config = new BenchmarkConfig(cmd);
-            setupTimeout(config);
+    LOG.warn("(Parameters received) running time: {}, entry size: {}, ensemble size: {}, "
+            + "quorum size: {}, throttle: {}, number of ledgers: {}, zk servers: {}, "
+            + "latency file: {}", runningTime, entrysize, ensemble, quorum,
+            throttle, ledgers, servers, latencyFile);
 
-            runBenchmark(config);
+    byte data[] = new byte[entrysize];
+    Arrays.fill(data, (byte) 'x');
+    ClientConfiguration conf = new ClientConfiguration();
+    conf.setThrottleValue(throttle).setReadTimeout(sockTimeout).setZkServers(servers);
 
-        } catch (Exception e) {
-            LOG.error("Benchmark failed with an exception", e);
-            System.exit(1);
+    if (!cmd.hasOption("skipwarmup")) {
+        LOG.info("Starting warmup");
+        long throughput = warmUp(data, ledgers, ensemble, quorum, passwd, conf);
+        LOG.info("Warmup tp: " + throughput + ", phase finished");
+    }
+
+    BenchThroughputLatency bench = new BenchThroughputLatency(ensemble, quorum, ackQuorum,
+            passwd, ledgers, sendLimit, conf);
+    bench.setEntryData(data);
+    Thread thread = new Thread(bench);
+    ZooKeeper zk = null;
+
+    if (coordinationZnode != null) {
+        final CountDownLatch connectLatch = new CountDownLatch(1);
+        zk = new ZooKeeper(servers, 15000, event -> {
+            if (event.getState() == KeeperState.SyncConnected) connectLatch.countDown();
+        });
+        if (!connectLatch.await(10, TimeUnit.SECONDS)) {
+            LOG.error("Couldn't connect to zookeeper at " + servers);
+            zk.close();
+            System.exit(-1);}
+
+        final CountDownLatch latch = new CountDownLatch(1);
+        LOG.info("Waiting for " + coordinationZnode);
+        if (zk.exists(coordinationZnode, event -> {
+            if (event.getType() == EventType.NodeCreated) latch.countDown();
+        }) != null) {
+            latch.countDown();
+        }
+        latch.await();
+        LOG.info("Coordination znode created");
+    }
+    thread.start();
+    Thread.sleep(totalTime);
+    thread.interrupt();
+    thread.join();
+    LOG.info("Calculating percentiles");
+
+    // Elaborazione delle latenze
+    long[] positiveLatencies = Arrays.stream(bench.latencies)
+            .filter(l -> l > 0)
+            .toArray();
+    int numcompletions = positiveLatencies.length;
+    int numlat = Math.min(bench.sendLimit, numcompletions);
+    long[] latency = new long[numlat];
+    System.arraycopy(positiveLatencies, 0, latency, 0, numlat);
+    Arrays.sort(latency);
+
+    long tp = (long) ((double) (numcompletions * 1000.0) / (double) bench.getDuration());
+    LOG.info(numcompletions + " completions in " + bench.getDuration() + " seconds: " + tp + " ops/sec");
+    if (zk != null) {
+        zk.create(coordinationZnode + "/worker-",
+                ("tp " + tp + " duration " + bench.getDuration()).getBytes(),
+                ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT_SEQUENTIAL);
+        zk.close();
+    }
+
+    // scrittura del file
+    try (OutputStream fos = new BufferedOutputStream(new FileOutputStream(latencyFile))) {
+        for (Long l : latency) {
+            fos.write((l + "\t" + (l / 1000000) + "ms\n").getBytes());
         }
     }
+
+    LOG.info("99th percentile latency: {}", percentile(latency, 99));
+    LOG.info("95th percentile latency: {}", percentile(latency, 95));
+    bench.close();
+    timeouter.cancel();
+}
