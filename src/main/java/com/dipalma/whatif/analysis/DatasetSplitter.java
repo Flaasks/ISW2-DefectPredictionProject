@@ -16,8 +16,10 @@ import java.io.File;
 public class DatasetSplitter {
 
     /**
-     * Split A into train/test (80/20) and create B+, B, C based on Duplication>0 (B+), Duplication==0 (C),
-     * and B is B+ with Duplication set to 0 (manipulated).
+     * Split A into train/test (80/20) and create B+, B, C based on the actionable feature:
+     * - B+ contains rows from A where actionableFeature > 0
+     * - C contains rows from A where actionableFeature == 0
+     * - B is a copy of B+ with actionableFeature set to 0
      */
     public static void split(String inputCsv, String outPrefix) throws IOException {
         // autodetect actionable feature if possible
@@ -40,6 +42,20 @@ public class DatasetSplitter {
             List<String> headers = parser.getHeaderNames();
             List<Map<String, String>> rows = new ArrayList<>();
             for (var r : parser) rows.add(r.toMap());
+
+            // Determine the single actionable feature to use for B+/B/C. If not provided, try autodetect.
+            String topFeature = actionableFeature;
+            if (topFeature == null) {
+                try {
+                    var opt = FeatureAnalyzer.selectTopActionableFeature(inputCsv);
+                    topFeature = opt.orElse(null);
+                } catch (Exception e) {
+                    topFeature = null;
+                }
+            }
+            if (topFeature == null || topFeature.isBlank()) {
+                throw new IOException("Could not determine top actionable feature to create B+/B/C. Please provide it or ensure FeatureAnalyzer can detect one.");
+            }
 
             // Stratified split: group by class label, shuffle within groups, then take 80% from each
             Map<String, List<Map<String, String>>> byClass = new LinkedHashMap<>();
@@ -67,28 +83,14 @@ public class DatasetSplitter {
             List<Map<String, String>> bPlus = new ArrayList<>();
             List<Map<String, String>> c = new ArrayList<>();
             for (var row : rows) {
-                String dup = row.getOrDefault("Duplication", "0");
+                String v = row.getOrDefault(topFeature, "0");
                 double d = 0;
-                try { d = Double.parseDouble(dup); } catch (Exception ignored) {}
+                try { d = Double.parseDouble(v); } catch (Exception ignored) {}
                 if (d > 0.0) bPlus.add(row); else c.add(row);
             }
 
             writeCsv(outPrefix + "_Bplus.csv", headers, bPlus);
             writeCsv(outPrefix + "_C.csv", headers, c);
-
-            // Determine the single actionable feature to zero for B. If not provided, try autodetect.
-            String topFeature = actionableFeature;
-            if (topFeature == null) {
-                try {
-                    var opt = FeatureAnalyzer.selectTopActionableFeature(inputCsv);
-                    topFeature = opt.orElse(null);
-                } catch (Exception e) {
-                    topFeature = null;
-                }
-            }
-            if (topFeature == null || topFeature.isBlank()) {
-                throw new IOException("Could not determine top actionable feature to create B. Please provide it or ensure FeatureAnalyzer can detect one.");
-            }
 
             // Create B by copying B+ and zeroing only the top actionable feature
             List<Map<String, String>> b = new ArrayList<>();
@@ -128,10 +130,22 @@ public class DatasetSplitter {
         Instances train = new Instances(all, 0, trainSize);
         Instances test = new Instances(all, trainSize, all.numInstances() - trainSize);
 
+        // Determine actionable feature if not provided
+        String topFeature = actionableFeature;
+        if (topFeature == null) {
+            try {
+                var opt = FeatureAnalyzer.selectTopActionableFeature(inputCsv);
+                topFeature = opt.orElse(null);
+            } catch (Exception ignored) {
+                topFeature = null;
+            }
+        }
+
         // Create B+ and C by filtering on actionableFeature
         Instances bPlus = new Instances(all, 0);
         Instances c = new Instances(all, 0);
-        int featureIndex = all.attribute(actionableFeature) != null ? all.attribute(actionableFeature).index() : -1;
+        int featureIndex = -1;
+        if (topFeature != null && all.attribute(topFeature) != null) featureIndex = all.attribute(topFeature).index();
         for (int i = 0; i < all.numInstances(); i++) {
             double val = featureIndex >= 0 ? all.instance(i).value(featureIndex) : 0.0;
             if (val > 0.0) bPlus.add(all.instance(i)); else c.add(all.instance(i));
