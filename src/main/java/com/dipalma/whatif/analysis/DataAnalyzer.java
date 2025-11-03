@@ -75,7 +75,8 @@ public class DataAnalyzer {
 
 
         log.info("--- Step 5: Identifying Top Actionable Feature (AFeature) ---");
-        List<String> actionableFeatures = Arrays.asList("LOC", "CyclomaticComplexity", "ParameterCount", "Duplication");
+    // Exclude LOC from actionable features for automatic selection
+    List<String> actionableFeatures = Arrays.asList("CyclomaticComplexity", "ParameterCount", "Duplication");
         String aFeature = "";
         double highestScore = -1.0;
 
