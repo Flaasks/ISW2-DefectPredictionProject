@@ -157,18 +157,19 @@ public class DatasetSplitter {
             for (int i = 0; i < b.numInstances(); i++) b.instance(i).setValue(featureIndex, 0.0);
         }
 
-        return new InMemorySplit(train, test, bPlus, b, c);
+        return new InMemorySplit(all, train, test, bPlus, b, c);
     }
 
     public static class InMemorySplit {
+        public final Instances all;
         public final Instances train;
         public final Instances test;
         public final Instances bPlus;
         public final Instances b;
         public final Instances c;
 
-        public InMemorySplit(Instances train, Instances test, Instances bPlus, Instances b, Instances c) {
-            this.train = train; this.test = test; this.bPlus = bPlus; this.b = b; this.c = c;
+        public InMemorySplit(Instances all, Instances train, Instances test, Instances bPlus, Instances b, Instances c) {
+            this.all = all; this.train = train; this.test = test; this.bPlus = bPlus; this.b = b; this.c = c;
         }
     }
 

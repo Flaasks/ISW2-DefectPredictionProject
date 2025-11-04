@@ -38,7 +38,7 @@ public class WhatIfSimulator {
         // 2) split datasets in memory and create B set
         DatasetSplitter.InMemorySplit split = DatasetSplitter.splitInMemory(processedCsvPath, topFeature);
 
-        // 3) Train best classifier on A_train (in-memory)
+    // 3) Train best classifier on A_train (in-memory)
         ClassifierRunner runner = new ClassifierRunner(processedCsvPath); // path kept for logging only
         Instances trainData = split.train;
         Classifier cls = runner.trainBestClassifier(trainData);
@@ -50,8 +50,10 @@ public class WhatIfSimulator {
         Map<String, Integer> actual = new LinkedHashMap<>();
         Map<String, Integer> predicted = new LinkedHashMap<>();
 
-        int[] aCounts = runner.actualAndPredicted(cls, split.test);
-        actual.put("A", aCounts[0]); predicted.put("A", aCounts[1]);
+    // Use the entire processed dataset as A (do NOT use only the test split). This ensures "Actual" for A
+    // reflects the whole processed CSV as requested.
+    int[] aCounts = runner.actualAndPredicted(cls, split.all);
+    actual.put("A", aCounts[0]); predicted.put("A", aCounts[1]);
 
         int[] bPlusCounts = runner.actualAndPredicted(cls, split.bPlus);
         actual.put("B+", bPlusCounts[0]); predicted.put("B+", bPlusCounts[1]);
