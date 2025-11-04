@@ -38,10 +38,10 @@ public class WhatIfSimulator {
         // 2) split datasets in memory and create B set
         DatasetSplitter.InMemorySplit split = DatasetSplitter.splitInMemory(processedCsvPath, topFeature);
 
-    // 3) Train best classifier on A_train (in-memory)
-        ClassifierRunner runner = new ClassifierRunner(processedCsvPath); // path kept for logging only
-        Instances trainData = split.train;
-        Classifier cls = runner.trainBestClassifier(trainData);
+    // 3) Train best classifier on the full A dataset (use all processed data per directive)
+    ClassifierRunner runner = new ClassifierRunner(processedCsvPath); // path kept for logging only
+    Instances trainData = split.all; // train on full processed dataset A
+    Classifier cls = runner.trainBestClassifier(trainData);
         if (cls == null) {
             log.error("trainBestClassifier returned null for {}", processedCsvPath);
             return;
