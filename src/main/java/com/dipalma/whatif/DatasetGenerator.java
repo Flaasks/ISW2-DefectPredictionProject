@@ -58,7 +58,7 @@ public class DatasetGenerator {
             List<ProjectRelease> releasesToAnalyze = releases.subList(0, releaseCutoff);
 
 
-            String[] headers = {"Project", "MethodName", "Release", "LOC", "CyclomaticComplexity", "ParameterCount", "Duplication", "NR", "NAuth", "stmtAdded", "stmtDeleted", "maxChurn", "avgChurn", "IsBuggy"};
+            String[] headers = {"Project", "MethodName", "Release", "LOC", "CyclomaticComplexity", "ParameterCount", "NumberOfBranches", "NR", "NAuth", "stmtAdded", "stmtDeleted", "elseAdded", "avgChurn", "IsBuggy"};
             List<String[]> csvData = new ArrayList<>();
             csvData.add(headers);
 
@@ -89,12 +89,12 @@ public class DatasetGenerator {
                             features.getOrDefault("LOC", 0).toString(),
                             features.getOrDefault("CyclomaticComplexity", 0).toString(),
                             features.getOrDefault("ParameterCount", 0).toString(),
-                            features.getOrDefault("Duplication", 0).toString(), // Added new feature
+                            features.getOrDefault("NumberOfBranches", 0).toString(), // Added new feature
                             features.getOrDefault("NR", 0).toString(),
                             features.getOrDefault("NAuth", 0).toString(),
                             features.getOrDefault("stmtAdded", 0).toString(),
                             features.getOrDefault("stmtDeleted", 0).toString(),
-                            features.getOrDefault("maxChurn", 0).toString(),
+                            features.getOrDefault("elseAdded", 0).toString(),
                             features.getOrDefault("avgChurn", 0).toString(),
                             isBuggy ? "yes" : "no"
                     });

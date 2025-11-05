@@ -77,8 +77,8 @@ public class FeatureAnalyzer {
      */
     public static Optional<String> selectTopActionableFeature(String csvFilePath) throws IOException {
         Map<String, Double> corrs = computeCorrelations(csvFilePath);
-    // define actionable features (complexity + smells). Exclude LOC from automatic actionable list
-    List<String> actionable = List.of("CyclomaticComplexity", "ParameterCount", "Duplication", "NR", "NAuth", "stmtAdded", "stmtDeleted", "maxChurn", "avgChurn");
+    // define actionable features (complexity + history). Exclude LOC from automatic actionable list
+    List<String> actionable = List.of("CyclomaticComplexity", "ParameterCount", "NumberOfBranches", "elseAdded", "NR", "NAuth", "stmtAdded", "stmtDeleted", "avgChurn");
         String best = null;
         double bestVal = 0.0;
         for (String f : actionable) {

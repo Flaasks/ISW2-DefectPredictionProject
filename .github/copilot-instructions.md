@@ -11,11 +11,11 @@ Big-picture architecture (components & flow)
 - Dataset generation: `DatasetGenerator` (root package) uses connectors + `MethodTracker` to write `<PROJECT>.csv` (see `DatasetGenerator.java`). Important: only first ~34% of releases are considered when producing datasets.
 - Preprocessing: `com.dipalma.whatif.preprocessing.DataPreprocessor` loads CSV -> removes identifier columns (`Project`, `MethodName`, `Release`) -> sanitizes NaN/Inf -> winsorizes outliers -> removes constant attributes -> normalizes -> writes `<PROJECT>_processed.csv`.
 - Classification: `com.dipalma.whatif.classification.ClassifierRunner` loads processed CSVs, ensures class attribute is nominal, evaluates RandomForest/NaiveBayes/IBk with repeated 10x10 CV and can train+serialize classifiers.
- - Analysis & Simulation: `com.dipalma.whatif.analysis.DataAnalyzer`, `FeatureComparer`, `WhatIfSimulator` perform feature ranking (InfoGain), select an actionable feature (CyclomaticComplexity/ParameterCount/Duplication), pick a high-impact method (AFMethod), and run the what-if pipeline that produces `<prefix>_whatif_summary.csv`.
+ - Analysis & Simulation: `com.dipalma.whatif.analysis.DataAnalyzer`, `FeatureComparer`, `WhatIfSimulator` perform feature ranking (InfoGain), select an actionable feature (CyclomaticComplexity/ParameterCount/NumberOfBranches), pick a high-impact method (AFMethod), and run the what-if pipeline that produces `<prefix>_whatif_summary.csv`.
 
 Important project-specific conventions and gotchas (do not invent)
 - CSV method identifier format: `filepath/to/File.java/MethodName(params)` (used across `DatasetGenerator` and `DataAnalyzer`).
- - Actionable feature candidates: exactly ["CyclomaticComplexity", "ParameterCount", "Duplication"] — `DataAnalyzer` searches ranked Weka attributes and picks the first matching one.
+ - Actionable feature candidates: exactly ["CyclomaticComplexity", "ParameterCount", "NumberOfBranches"] — `DataAnalyzer` searches ranked Weka attributes and picks the first matching one.
 - Release cutoff heuristic: `DatasetGenerator` analyzes only the first floor(releases.size * 0.34) releases (minimum 1). This affects dataset time windows.
 - FeatureComparer: when comparing original vs refactored snippets it deliberately increments `NR` and `NAuth` by 1 for the refactored side — tests or changes touching this logic must preserve that behavior unless you update requirements.
 - Processed filename suffix: `_processed.csv` — many components expect this exact suffix (e.g., `WhatIfSimulator` expects `*_processed.csv`).

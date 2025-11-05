@@ -22,6 +22,7 @@ public final class TrackedMethod {
     private int stmtDeleted = 0;
     private int totalChurn = 0;
     private int maxChurn = 0;
+    private int elseAdded = 0;
 
     public TrackedMethod(String id, String signature, String filepath) {
         this.id = id;
@@ -54,13 +55,17 @@ public final class TrackedMethod {
     public int getMaxChurn() { return this.maxChurn; }
     public int getTotalChurn() { return this.totalChurn; }
 
+    public void addElseAdded(int n) { this.elseAdded += Math.max(0, n); }
+    public int getElseAdded() { return this.elseAdded; }
+
     // flush accumulated history into feature map
     public void flushHistoryFeatures() {
         this.features.put("NR", this.nr);
         this.features.put("NAuth", this.getNAuth());
         this.features.put("stmtAdded", this.stmtAdded);
         this.features.put("stmtDeleted", this.stmtDeleted);
-        this.features.put("maxChurn", this.maxChurn);
+        // replace maxChurn historic metric with elseAdded per user request
+        this.features.put("elseAdded", this.elseAdded);
         double avg = this.nr == 0 ? 0.0 : (double) this.totalChurn / this.nr;
         this.features.put("avgChurn", avg);
     }

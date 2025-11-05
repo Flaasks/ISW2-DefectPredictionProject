@@ -88,7 +88,7 @@ public class FeatureComparer {
         features.put("CyclomaticComplexity", complexity.get());
         features.put("ParameterCount", callable.getParameters().size());
 
-    features.put("Duplication", 0);
+    features.put("NumberOfBranches", 0);
     // baseline history values for standalone snippets
     features.put("NR", 1);
     features.put("NAuth", 1);
@@ -102,7 +102,7 @@ public class FeatureComparer {
             log.info("{}", String.format(HEADER_FMT, "Feature", "Before Refactor", "After Refactor"));
         }
 
-        List<String> featureNames = Arrays.asList("LOC", "CyclomaticComplexity", "ParameterCount", "Duplication", "NR", "NAuth");
+    List<String> featureNames = Arrays.asList("LOC", "CyclomaticComplexity", "ParameterCount", "NumberOfBranches", "NR", "NAuth");
 
         for(String feature : featureNames) {
             String beforeValue = before.getOrDefault(feature, 0).toString();

@@ -76,7 +76,7 @@ public class MethodTracker {
         }
 
         // Calculate all features now that we have all methods for this release
-        // Fingerprint method bodies (normalize identifiers) and count identical fingerprints
+    // Fingerprint method bodies (normalize identifiers) and count identical fingerprints
         Map<String, Integer> fingerprintCount = new HashMap<>();
         Map<TrackedMethod, String> methodFingerprint = new HashMap<>();
         for (Map.Entry<TrackedMethod, CallableDeclaration<?>> e : methodAstMap.entrySet()) {
@@ -94,12 +94,11 @@ public class MethodTracker {
             fingerprintCount.put(fp, fingerprintCount.getOrDefault(fp, 0) + 1);
         }
 
-        // set duplication and compute static features; initialize history accumulators
+        // compute static features; initialize history accumulators
         for (TrackedMethod method : currentMethods) {
             CallableDeclaration<?> callable = methodAstMap.get(method);
             String fp = methodFingerprint.getOrDefault(method, "");
-            int dupCount = Math.max(0, fingerprintCount.getOrDefault(fp, 1) - 1);
-            method.addFeature("Duplication", dupCount);
+            // Duplication feature removed (replaced by NumberOfBranches)
             // compute static features (LOC, complexity, params)
             calculateStaticFeatures(method, callable);
         }
@@ -132,8 +131,41 @@ public class MethodTracker {
             }
         });
         method.addFeature("CyclomaticComplexity", complexity.get());
+        // NumberOfBranches: count decision points (if, loops, switch entries, ternary)
+        int branches = countDecisionPoints(callable);
+        method.addFeature("NumberOfBranches", branches);
         method.addFeature("ParameterCount", callable.getParameters().size());
         // Duplication already set earlier
+    }
+
+    private int countDecisionPoints(CallableDeclaration<?> callable) {
+        int count = 0;
+        try {
+            count += callable.findAll(IfStmt.class).size();
+            count += callable.findAll(ForStmt.class).size();
+            count += callable.findAll(ForEachStmt.class).size();
+            count += callable.findAll(WhileStmt.class).size();
+            count += callable.findAll(DoStmt.class).size();
+            count += callable.findAll(ConditionalExpr.class).size();
+            // count switch entries (cases/default)
+            int switchCases = callable.findAll(SwitchStmt.class).stream().mapToInt(sw -> sw.getEntries().size()).sum();
+            count += switchCases;
+        } catch (Exception e) {
+            // be defensive: if parsing traversal fails, return 0
+            return 0;
+        }
+        return count;
+    }
+
+    private int countElseParts(CallableDeclaration<?> callable) {
+        int cnt = 0;
+        try {
+            cnt = (int) callable.findAll(IfStmt.class).stream().filter(ifstmt -> ifstmt.getElseStmt().isPresent()).count();
+        } catch (Exception e) {
+            // defensive: return 0 on failure
+            return 0;
+        }
+        return cnt;
     }
 
     /** Scan commits for the release and accumulate edits into tracked methods */
@@ -164,6 +196,10 @@ public class MethodTracker {
                 // For this commit, we will aggregate edits per method to ensure NR is counted once
                 Map<TrackedMethod, int[]> perMethodAccumulator = new IdentityHashMap<>();
 
+                // cache else-part counts per file for this commit (old vs new)
+                Map<String, Map<String, Integer>> oldElseByFile = new HashMap<>();
+                Map<String, Map<String, Integer>> newElseByFile = new HashMap<>();
+
                 // dedupe edits per commit/path/begin/end to avoid double counting
                 Set<String> seenEdits = new HashSet<>();
 
@@ -171,6 +207,46 @@ public class MethodTracker {
                     String path = diff.getNewPath() == null ? diff.getOldPath() : diff.getNewPath();
                     List<TrackedMethod> methods = methodsByFile.get(path);
                     if (methods == null || methods.isEmpty()) continue;
+
+                    // compute else counts for old and new file versions once per path
+                    if (!oldElseByFile.containsKey(path) && !newElseByFile.containsKey(path)) {
+                        try {
+                            String oldContent = git.getFileContent(path, parent.getName());
+                            String newContent = git.getFileContent(path, commit.getName());
+                            Map<String, Integer> oldMap = new HashMap<>();
+                            Map<String, Integer> newMap = new HashMap<>();
+                            if (oldContent != null && !oldContent.isEmpty()) {
+                                try {
+                                    CompilationUnit oldCu = StaticJavaParser.parse(oldContent);
+                                    oldCu.findAll(CallableDeclaration.class).forEach(cd -> {
+                                        try {
+                                            String sig = cd.getSignature().asString();
+                                            int cnt = countElseParts(cd);
+                                            oldMap.put(sig, cnt);
+                                        } catch (Exception ex) { /* ignore individual failures */ }
+                                    });
+                                } catch (Exception ex) { /* ignore parse errors */ }
+                            }
+                            if (newContent != null && !newContent.isEmpty()) {
+                                try {
+                                    CompilationUnit newCu = StaticJavaParser.parse(newContent);
+                                    newCu.findAll(CallableDeclaration.class).forEach(cd -> {
+                                        try {
+                                            String sig = cd.getSignature().asString();
+                                            int cnt = countElseParts(cd);
+                                            newMap.put(sig, cnt);
+                                        } catch (Exception ex) { /* ignore individual failures */ }
+                                    });
+                                } catch (Exception ex) { /* ignore parse errors */ }
+                            }
+                            oldElseByFile.put(path, oldMap);
+                            newElseByFile.put(path, newMap);
+                        } catch (Exception ex) {
+                            log.debug("Could not compute else counts for {} in commit {}: {}", path, commit.getName(), ex.getMessage());
+                            oldElseByFile.put(path, Collections.emptyMap());
+                            newElseByFile.put(path, Collections.emptyMap());
+                        }
+                    }
 
                     FileHeader header = fmt.toFileHeader(diff);
                     List<Edit> edits = header.toEditList();
@@ -230,6 +306,22 @@ public class MethodTracker {
                     // maxChurn should be based on net change (added - deleted) per commit
                     int net = added - deleted;
                     tm.updateMaxChurn(net);
+                    // compute elseAdded by comparing old/new method bodies when available
+                    try {
+                        String path = tm.filepath();
+                        String sig = tm.signature();
+                        int oldElse = 0;
+                        int newElse = 0;
+                        Map<String, Integer> oldMap = oldElseByFile.getOrDefault(path, Collections.emptyMap());
+                        Map<String, Integer> newMap = newElseByFile.getOrDefault(path, Collections.emptyMap());
+                        if (oldMap.containsKey(sig)) oldElse = oldMap.get(sig);
+                        if (newMap.containsKey(sig)) newElse = newMap.get(sig);
+                        if (newElse > oldElse) {
+                            tm.addElseAdded(newElse - oldElse);
+                        }
+                    } catch (Exception ex) {
+                        // ignore elseAdded computation errors so history still accumulates
+                    }
                 }
             }
         }
