@@ -21,8 +21,8 @@ public class Main {
         final String BK_PROCESSED = "BOOKKEEPER_processed.csv";
         final String SN_PROCESSED = "SYNCOPE_processed.csv";
 
-    java.io.File bkProcessed = new java.io.File(BK_PROCESSED);
-    java.io.File snProcessed = new java.io.File(SN_PROCESSED);
+        java.io.File bkProcessed = new java.io.File(BK_PROCESSED);
+        java.io.File snProcessed = new java.io.File(SN_PROCESSED);
 
 
         try {
@@ -78,12 +78,18 @@ public class Main {
             DataAnalyzer bookkeeperAnalyzer = new DataAnalyzer("BOOKKEEPER.csv", BK_PROCESSED);
             bookkeeperAnalyzer.findActionableFeatureAndMethod();
             String bkSelectedMethod = bookkeeperAnalyzer.getSelectedMethodName();
+            String bkSelectedFeature = bookkeeperAnalyzer.getSelectedFeatureName();
             log.info("Bookkeeper selected AFMethod: {}", bkSelectedMethod);
+            log.info("Bookkeeper selected AFeature: {}", bkSelectedFeature);
 
             //DataAnalyzer syncopeAnalyzer = new DataAnalyzer("SYNCOPE.csv", SN_PROCESSED);
-            //syncopeAnalyzer.findActionableFeatureAndMethod();
-            //String snSelectedMethod = syncopeAnalyzer.getSelectedMethodName();
-            //log.info("Syncope selected AFMethod: {}", snSelectedMethod);
+            // Also select actionable feature & method for Syncope and store selection
+            DataAnalyzer syncopeAnalyzer = new DataAnalyzer("SYNCOPE.csv", SN_PROCESSED);
+            syncopeAnalyzer.findActionableFeatureAndMethod();
+            String snSelectedMethod = syncopeAnalyzer.getSelectedMethodName();
+            String snSelectedFeature = syncopeAnalyzer.getSelectedFeatureName();
+            log.info("Syncope selected AFMethod: {}", snSelectedMethod);
+            log.info("Syncope selected AFeature: {}", snSelectedFeature);
             log.info("--- FEATURE & METHOD SELECTION COMPLETE ---");
 
 
@@ -108,11 +114,12 @@ public class Main {
 
             log.info("--- Analysis for BOOKKEEPER ---");
             WhatIfSimulator bookkeeperSimulator = new WhatIfSimulator(BK_PROCESSED);
-            bookkeeperSimulator.runFullDatasetSimulation();
+            bookkeeperSimulator.runFullDatasetSimulation(bkSelectedFeature);
 
             log.info("--- Analysis for SYNCOPE ---");
             WhatIfSimulator syncopeSimulator = new WhatIfSimulator(SN_PROCESSED);
-            syncopeSimulator.runFullDatasetSimulation();
+            // Use the actionable feature selected by DataAnalyzer for Syncope
+            syncopeSimulator.runFullDatasetSimulation(snSelectedFeature);
 
         } catch (Exception e) {
             e.printStackTrace();

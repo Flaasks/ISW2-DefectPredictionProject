@@ -24,16 +24,29 @@ public class WhatIfSimulator {
     }
 
     public void runFullDatasetSimulation() throws Exception {
+        runFullDatasetSimulation(null);
+    }
+
+    /**
+     * Run the simulation using a preselected actionable feature. If actionableFeature is null,
+     * the simulator will detect it automatically (legacy behavior).
+     */
+    public void runFullDatasetSimulation(String actionableFeature) throws Exception {
         log.info("Starting what-if simulation for {}", processedCsvPath);
 
-        // 1) detect top actionable feature
-        var opt = FeatureAnalyzer.selectTopActionableFeature(processedCsvPath);
-        if (opt.isEmpty()) {
-            log.error("No actionable feature detected for {}", processedCsvPath);
-            return;
+        // 1) determine top actionable feature (prefer provided value)
+        String topFeature = actionableFeature;
+        if (topFeature == null) {
+            var opt = FeatureAnalyzer.selectTopActionableFeature(processedCsvPath);
+            if (opt.isEmpty()) {
+                log.error("No actionable feature detected for {}", processedCsvPath);
+                return;
+            }
+            topFeature = opt.get();
+            log.info("Top actionable feature (detected): {}", topFeature);
+        } else {
+            log.info("Top actionable feature (provided): {}", topFeature);
         }
-        String topFeature = opt.get();
-        log.info("Top actionable feature: {}", topFeature);
 
         // 2) split datasets in memory and create B set
         DatasetSplitter.InMemorySplit split = DatasetSplitter.splitInMemory(processedCsvPath, topFeature);

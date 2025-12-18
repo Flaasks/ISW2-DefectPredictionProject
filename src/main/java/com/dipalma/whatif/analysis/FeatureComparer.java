@@ -86,9 +86,12 @@ public class FeatureComparer {
             }
         });
         features.put("CyclomaticComplexity", complexity.get());
+    // NumberOfBranches: count decision points (if, loops, switch entries, ternary)
+    int branches = countDecisionPoints(callable);
+    features.put("NumberOfBranches", branches);
+    log.debug("FeatureComparer: computed NumberOfBranches={} for callable {}", branches, callable.getNameAsString());
         features.put("ParameterCount", callable.getParameters().size());
-
-    features.put("NumberOfBranches", 0);
+    
     // baseline history values for standalone snippets
     features.put("NR", 1);
     features.put("NAuth", 1);
@@ -113,5 +116,26 @@ public class FeatureComparer {
                 log.info("{}", String.format(ROW_FMT, feature, beforeValue, afterValue, marker));
             }
         }
+    }
+
+    // Count decision points inside a callable (if, for, foreach, while, do, ternary, switch cases)
+    private int countDecisionPoints(CallableDeclaration<?> callable) {
+        if (callable == null) return 0;
+        int count = 0;
+        try {
+            count += callable.findAll(IfStmt.class).size();
+            count += callable.findAll(ForStmt.class).size();
+            // enhanced for
+            count += callable.findAll(ForEachStmt.class).size();
+            count += callable.findAll(WhileStmt.class).size();
+            count += callable.findAll(DoStmt.class).size();
+            count += callable.findAll(ConditionalExpr.class).size();
+            int switchCases = callable.findAll(SwitchStmt.class).stream().mapToInt(sw -> sw.getEntries().size()).sum();
+            count += switchCases;
+        } catch (Exception e) {
+            // defensive: on any traversal/parsing error, return 0
+            return 0;
+        }
+        return count;
     }
 }

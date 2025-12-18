@@ -221,23 +221,41 @@ public class ClassifierRunner {
      * Returns an int array [actualCount, predictedCount].
      */
     public int[] actualAndPredicted(Classifier cls, Instances data) throws Exception {
+        if (data == null || data.numInstances() == 0) return new int[]{0, 0};
         if (data.classIndex() == -1) data.setClassIndex(data.numAttributes() - 1);
+
+        weka.core.Attribute classAttr = data.classAttribute();
+        // Determine positive class index (common conventions: "1" or "true"), fallback to second nominal value
+        int positiveIndex = classAttr.indexOfValue("1");
+        if (positiveIndex == -1) positiveIndex = classAttr.indexOfValue("true");
+        if (positiveIndex == -1) positiveIndex = Math.min(1, classAttr.numValues() - 1);
+
         int actual = 0;
         int predicted = 0;
 
         for (int i = 0; i < data.numInstances(); i++) {
-            double actualVal = data.instance(i).classValue();
-            String actualLabel = data.classAttribute().value((int) actualVal);
-            if (actualLabel != null && (actualLabel.equalsIgnoreCase("yes") || actualLabel.equalsIgnoreCase("true") || actualLabel.equals("1"))) {
-                actual++;
+            weka.core.Instance inst = data.instance(i);
+
+            // count actual based on instance class value
+            int instClassIndex = (int) inst.classValue();
+            if (instClassIndex == positiveIndex) actual++;
+
+            // predict: prefer classifyInstance (returns class index for nominal), fallback to distributionForInstance
+            int predIndex;
+            try {
+                double p = cls.classifyInstance(inst);
+                predIndex = (int) p;
+            } catch (Exception e) {
+                double[] dist = cls.distributionForInstance(inst);
+                predIndex = 0;
+                for (int j = 1; j < dist.length; j++) {
+                    if (dist[j] > dist[predIndex]) predIndex = j;
+                }
             }
 
-            double pred = cls.classifyInstance(data.instance(i));
-            String predLabel = data.classAttribute().value((int) pred);
-            if (predLabel != null && (predLabel.equalsIgnoreCase("yes") || predLabel.equalsIgnoreCase("true") || predLabel.equals("1"))) {
-                predicted++;
-            }
+            if (predIndex == positiveIndex) predicted++;
         }
+
         return new int[]{actual, predicted};
     }
 }

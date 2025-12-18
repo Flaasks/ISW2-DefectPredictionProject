@@ -27,6 +27,7 @@ public class DataAnalyzer {
     private final String processedCsvPath;
     private Instances data;
     private String selectedMethodName = "";
+    private String selectedFeatureName = "";
     private static final Logger log = LoggerFactory.getLogger(DataAnalyzer.class);
     private static final String RANK_ROW_FMT = "%-4d | %-7.4f | %s";
 
@@ -94,8 +95,19 @@ public class DataAnalyzer {
             log.info("Identified AFeature: {} (Score: {})", aFeature, score4);
         }
 
+        // store selected actionable feature for external callers
+        this.selectedFeatureName = aFeature;
+
         log.info("--- Step 6: Identifying Target Method (AFMethod) ---");
         findHighImpactMethod(aFeature);
+    }
+
+    /**
+     * Return the actionable feature name selected by the last call to findActionableFeatureAndMethod().
+     * Returns empty string if none was selected.
+     */
+    public String getSelectedFeatureName() {
+        return this.selectedFeatureName;
     }
 
     private void findHighImpactMethod(String aFeature) throws IOException {
