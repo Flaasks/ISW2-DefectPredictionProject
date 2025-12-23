@@ -46,68 +46,104 @@ public class GitConnector {
 
     public void cloneOrOpenRepo() throws IOException, GitAPIException {
         File localDir = new File(localPath);
+        
         if (localDir.exists()) {
-            log.info("Opening existing repository at {}", localPath);
-            git = Git.open(localDir);
-            repository = git.getRepository();
+            openExistingRepository(localDir);
         } else {
-            log.info("Cloning {} to {}...", remoteUrl, localPath);
-                // clone with all branches/tags
-                git = Git.cloneRepository().setURI(remoteUrl).setDirectory(localDir).setCloneAllBranches(true).call();
-            repository = git.getRepository();
-            log.info("Clone complete.");
+            cloneRepository(localDir);
         }
 
-        // Ensure repository has a HEAD; if not try to fetch and checkout a sensible branch (main/master)
+        ensureRepositoryHasHead();
+    }
+
+    private void openExistingRepository(File localDir) throws IOException {
+        log.info("Opening existing repository at {}", localPath);
+        git = Git.open(localDir);
+        repository = git.getRepository();
+    }
+
+    private void cloneRepository(File localDir) throws GitAPIException {
+        log.info("Cloning {} to {}...", remoteUrl, localPath);
+        git = Git.cloneRepository()
+                .setURI(remoteUrl)
+                .setDirectory(localDir)
+                .setCloneAllBranches(true)
+                .call();
+        repository = git.getRepository();
+        log.info("Clone complete.");
+    }
+
+    private void ensureRepositoryHasHead() {
         try {
             ObjectId head = repository.resolve("HEAD");
             if (head == null) {
-                log.warn("Repository at {} has no HEAD. Attempting to fetch remote branches and checkout a default branch.", localPath);
-                try {
-                    git.fetch().setRemote("origin").setRefSpecs(new ArrayList<>()).call();
-                } catch (Exception ex) {
-                    log.warn("Fetching remote failed: {}", ex.getMessage());
-                }
-
-                // try checkout 'main' then 'master'
-                boolean checkedOut = false;
-                try {
-                    git.checkout().setCreateBranch(true).setName("main").setStartPoint("origin/main").call();
-                    checkedOut = true;
-                } catch (Exception ignored) {
-                }
-                if (!checkedOut) {
-                    try {
-                        git.checkout().setCreateBranch(true).setName("master").setStartPoint("origin/master").call();
-                        checkedOut = true;
-                    } catch (Exception ignored) {
-                    }
-                }
-
-                // fallback: pick first remote branch
-                if (!checkedOut) {
-                    try {
-                        // try to list remote refs and pick a sensible branch
-                        Collection<Ref> remoteRefs = git.lsRemote().setHeads(true).call();
-                        if (!remoteRefs.isEmpty()) {
-                            String remoteRef = remoteRefs.iterator().next().getName(); // refs/heads/branch
-                            String branchName = remoteRef.substring(remoteRef.lastIndexOf('/') + 1);
-                            git.checkout().setCreateBranch(true).setName(branchName).setStartPoint("origin/" + branchName).call();
-                            checkedOut = true;
-                        }
-                    } catch (Exception ex) {
-                        log.warn("Failed to checkout a remote branch automatically: {}", ex.getMessage());
-                    }
-                }
-
-                if (!checkedOut) {
-                    log.warn("Could not checkout any branch automatically for {}. Some git operations may fail.", localPath);
-                } else {
-                    repository = git.getRepository();
-                }
+                handleMissingHead();
             }
         } catch (Exception e) {
             log.warn("Error while checking HEAD for {}: {}", localPath, e.getMessage());
+        }
+    }
+
+    private void handleMissingHead() {
+        log.warn("Repository at {} has no HEAD. Attempting to fetch remote branches and checkout a default branch.", localPath);
+        
+        fetchRemoteBranches();
+        boolean checkedOut = tryCheckoutDefaultBranches();
+        
+        if (!checkedOut) {
+            checkedOut = tryCheckoutFirstRemoteBranch();
+        }
+
+        finalizeHeadCheckout(checkedOut);
+    }
+
+    private void fetchRemoteBranches() {
+        try {
+            git.fetch().setRemote("origin").setRefSpecs(new ArrayList<>()).call();
+        } catch (Exception ex) {
+            log.warn("Fetching remote failed: {}", ex.getMessage());
+        }
+    }
+
+    private boolean tryCheckoutDefaultBranches() {
+        if (tryCheckoutBranch("main", "origin/main")) {
+            return true;
+        }
+        return tryCheckoutBranch("master", "origin/master");
+    }
+
+    private boolean tryCheckoutBranch(String branchName, String startPoint) {
+        try {
+            git.checkout()
+                    .setCreateBranch(true)
+                    .setName(branchName)
+                    .setStartPoint(startPoint)
+                    .call();
+            return true;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private boolean tryCheckoutFirstRemoteBranch() {
+        try {
+            Collection<Ref> remoteRefs = git.lsRemote().setHeads(true).call();
+            if (!remoteRefs.isEmpty()) {
+                String remoteRef = remoteRefs.iterator().next().getName();
+                String branchName = remoteRef.substring(remoteRef.lastIndexOf('/') + 1);
+                return tryCheckoutBranch(branchName, "origin/" + branchName);
+            }
+        } catch (Exception ex) {
+            log.warn("Failed to checkout a remote branch automatically: {}", ex.getMessage());
+        }
+        return false;
+    }
+
+    private void finalizeHeadCheckout(boolean checkedOut) {
+        if (!checkedOut) {
+            log.warn("Could not checkout any branch automatically for {}. Some git operations may fail.", localPath);
+        } else {
+            repository = git.getRepository();
         }
     }
 

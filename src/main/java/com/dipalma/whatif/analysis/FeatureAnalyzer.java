@@ -1,6 +1,5 @@
 package com.dipalma.whatif.analysis;
 
-import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
 
 import java.io.FileReader;
@@ -13,43 +12,92 @@ public class FeatureAnalyzer {
 
     public static Map<String, Double> computeCorrelations(String csvFilePath) throws IOException {
         try (Reader in = new FileReader(csvFilePath);
-             CSVParser parser = CSVFormat.DEFAULT.builder().setHeader().setSkipHeaderRecord(true).build().parse(in)) {
+             CSVParser parser = com.dipalma.whatif.util.CsvUtils.parseWithHeader(in)) {
 
             List<String> headers = parser.getHeaderNames();
             List<Map<String, String>> rows = new ArrayList<>();
             for (var rec : parser) rows.add(rec.toMap());
 
-            int n = rows.size();
-            // find class column (IsBuggy)
-            String classCol = headers.stream().filter(h -> h.equalsIgnoreCase("IsBuggy") || h.equalsIgnoreCase("IsBuggy?")).findFirst().orElse("IsBuggy");
+            String classCol = findClassColumn(headers);
+            Map<String, double[]> numericCols = extractNumericColumns(headers, rows);
+            double[] classArray = convertClassToBinary(rows, classCol);
 
-            // convert to numeric arrays
-            Map<String, double[]> numericCols = new LinkedHashMap<>();
-            for (String h : headers) {
-                if (h.equalsIgnoreCase("Project") || h.equalsIgnoreCase("MethodName") || h.equalsIgnoreCase("Release")) continue;
-                double[] arr = new double[n];
-                boolean allNumeric = true;
-                for (int i = 0; i < n; i++) {
-                    String val = rows.get(i).get(h);
-                    try { arr[i] = Double.parseDouble(val); } catch (Exception e) { allNumeric = false; break; }
-                }
-                if (allNumeric) numericCols.put(h, arr);
-            }
-
-            // class array (binary yes/no -> 1/0)
-            double[] cls = new double[n];
-            for (int i = 0; i < n; i++) {
-                String v = rows.get(i).get(classCol);
-                cls[i] = (v != null && (v.equalsIgnoreCase("yes") || v.equalsIgnoreCase("true") || v.equals("1"))) ? 1.0 : 0.0;
-            }
-
-            Map<String, Double> corrs = new LinkedHashMap<>();
-            for (var entry : numericCols.entrySet()) {
-                double r = pearsonCorr(entry.getValue(), cls);
-                corrs.put(entry.getKey(), r);
-            }
-            return corrs;
+            return computeCorrelationsForFeatures(numericCols, classArray);
         }
+    }
+
+    private static String findClassColumn(List<String> headers) {
+        return headers.stream()
+                .filter(h -> h.equalsIgnoreCase("IsBuggy") || h.equalsIgnoreCase("IsBuggy?"))
+                .findFirst()
+                .orElse("IsBuggy");
+    }
+
+    private static Map<String, double[]> extractNumericColumns(List<String> headers, List<Map<String, String>> rows) {
+        Map<String, double[]> numericCols = new LinkedHashMap<>();
+        int n = rows.size();
+        
+        for (String h : headers) {
+            if (shouldSkipColumn(h)) continue;
+            
+            double[] arr = tryParseColumnAsNumeric(rows, h, n);
+            if (arr != null) {
+                numericCols.put(h, arr);
+            }
+        }
+        
+        return numericCols;
+    }
+
+    private static boolean shouldSkipColumn(String columnName) {
+        return columnName.equalsIgnoreCase("Project") 
+            || columnName.equalsIgnoreCase("MethodName") 
+            || columnName.equalsIgnoreCase("Release");
+    }
+
+    private static double[] tryParseColumnAsNumeric(List<Map<String, String>> rows, String columnName, int size) {
+        double[] arr = new double[size];
+        
+        for (int i = 0; i < size; i++) {
+            String val = rows.get(i).get(columnName);
+            try {
+                arr[i] = Double.parseDouble(val);
+            } catch (Exception e) {
+                return null; // Not all numeric, skip this column
+            }
+        }
+        
+        return arr;
+    }
+
+    private static double[] convertClassToBinary(List<Map<String, String>> rows, String classCol) {
+        int n = rows.size();
+        double[] cls = new double[n];
+        
+        for (int i = 0; i < n; i++) {
+            String v = rows.get(i).get(classCol);
+            cls[i] = isBuggyValue(v) ? 1.0 : 0.0;
+        }
+        
+        return cls;
+    }
+
+    private static boolean isBuggyValue(String value) {
+        return value != null 
+            && (value.equalsIgnoreCase("yes") 
+                || value.equalsIgnoreCase("true") 
+                || value.equals("1"));
+    }
+
+    private static Map<String, Double> computeCorrelationsForFeatures(Map<String, double[]> numericCols, double[] classArray) {
+        Map<String, Double> corrs = new LinkedHashMap<>();
+        
+        for (var entry : numericCols.entrySet()) {
+            double r = pearsonCorr(entry.getValue(), classArray);
+            corrs.put(entry.getKey(), r);
+        }
+        
+        return corrs;
     }
 
     private static double pearsonCorr(double[] x, double[] y) {

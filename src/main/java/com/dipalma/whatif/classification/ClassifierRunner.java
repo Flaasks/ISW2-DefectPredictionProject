@@ -1,7 +1,6 @@
 package com.dipalma.whatif.classification;
 
 import weka.classifiers.Classifier;
-import weka.classifiers.Evaluation;
 import weka.classifiers.bayes.NaiveBayes;
 import weka.classifiers.lazy.IBk;
 import weka.classifiers.meta.FilteredClassifier;
@@ -9,7 +8,6 @@ import weka.classifiers.trees.RandomForest;
 import weka.core.Instances;
 import weka.core.converters.CSVLoader;
 import weka.filters.Filter;
-import weka.filters.supervised.instance.Resample;
 import weka.filters.unsupervised.attribute.NumericToNominal;
 import weka.core.SerializationHelper;
 import org.apache.commons.csv.CSVFormat;
@@ -18,7 +16,6 @@ import java.util.ArrayList;
 import java.util.List;
 
 import java.io.File;
-import java.util.Random;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -184,11 +181,7 @@ public class ClassifierRunner {
         if (data == null || data.numInstances() == 0) return new int[]{0, 0};
         if (data.classIndex() == -1) data.setClassIndex(data.numAttributes() - 1);
 
-        weka.core.Attribute classAttr = data.classAttribute();
-        // Determine positive class index, fallback to second nominal value
-        int positiveIndex = classAttr.indexOfValue("1");
-        if (positiveIndex == -1) positiveIndex = classAttr.indexOfValue("true");
-        if (positiveIndex == -1) positiveIndex = Math.min(1, classAttr.numValues() - 1);
+        int positiveIndex = com.dipalma.whatif.util.ClassLabelUtils.positiveIndex(data);
 
         int actual = 0;
         int predicted = 0;
@@ -196,25 +189,41 @@ public class ClassifierRunner {
         for (int i = 0; i < data.numInstances(); i++) {
             weka.core.Instance inst = data.instance(i);
 
-            // count actual based on instance class value
-            int instClassIndex = (int) inst.classValue();
-            if (instClassIndex == positiveIndex) actual++;
-
-            int predIndex;
-            try {
-                double p = cls.classifyInstance(inst);
-                predIndex = (int) p;
-            } catch (Exception e) {
-                double[] dist = cls.distributionForInstance(inst);
-                predIndex = 0;
-                for (int j = 1; j < dist.length; j++) {
-                    if (dist[j] > dist[predIndex]) predIndex = j;
-                }
+            if (isPositiveClass(inst, positiveIndex)) {
+                actual++;
             }
 
-            if (predIndex == positiveIndex) predicted++;
+            int predIndex = predictClassIndex(cls, inst);
+            if (predIndex == positiveIndex) {
+                predicted++;
+            }
         }
 
         return new int[]{actual, predicted};
+    }
+
+    private boolean isPositiveClass(weka.core.Instance inst, int positiveIndex) {
+        int instClassIndex = (int) inst.classValue();
+        return instClassIndex == positiveIndex;
+    }
+
+    private int predictClassIndex(Classifier cls, weka.core.Instance inst) throws Exception {
+        try {
+            double p = cls.classifyInstance(inst);
+            return (int) p;
+        } catch (Exception e) {
+            return findMaxProbabilityIndex(cls, inst);
+        }
+    }
+
+    private int findMaxProbabilityIndex(Classifier cls, weka.core.Instance inst) throws Exception {
+        double[] dist = cls.distributionForInstance(inst);
+        int maxIndex = 0;
+        for (int j = 1; j < dist.length; j++) {
+            if (dist[j] > dist[maxIndex]) {
+                maxIndex = j;
+            }
+        }
+        return maxIndex;
     }
 }
