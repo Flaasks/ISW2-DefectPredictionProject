@@ -245,69 +245,85 @@ public class GitConnector {
 
     public void findAndSetFixCommits(List<JiraTicket> tickets) throws GitAPIException, IOException {
         log.info("Scanning git log to link commits to JIRA tickets...");
+
         Pattern pattern = Pattern.compile("([A-Z][A-Z0-9]+-\\d+)");
+        Map<String, JiraTicket> ticketMap = buildTicketMap(tickets);
+
+        Iterable<RevCommit> commits = loadAllCommitsWithFallback();
+        if (commits != null) {
+            processCommits(commits, pattern, ticketMap);
+        } else {
+            log.warn("No commits available from git.log(); attempting to iterate branch refs as a fallback...");
+            processHeadsFallback(pattern, ticketMap);
+        }
+
+        log.info("Finished scanning git log.");
+    }
+
+    private Map<String, JiraTicket> buildTicketMap(List<JiraTicket> tickets) {
         Map<String, JiraTicket> ticketMap = new HashMap<>();
         for (JiraTicket ticket : tickets) {
             ticketMap.put(ticket.getKey(), ticket);
         }
-        Iterable<RevCommit> commits = null;
+        return ticketMap;
+    }
+
+    private Iterable<RevCommit> loadAllCommitsWithFallback() {
         try {
-            commits = git.log().all().call();
+            return git.log().all().call();
         } catch (org.eclipse.jgit.api.errors.NoHeadException nhe) {
             log.warn("No HEAD found when scanning git log; attempting fetch and retry...");
             try {
                 git.fetch().setRemote("origin").call();
-                commits = git.log().all().call();
+                return git.log().all().call();
             } catch (Exception ex) {
                 log.error("Failed to recover git log after fetch: {}", ex.getMessage());
+                return null;
             }
+        } catch (Exception ex) {
+            log.error("Error reading git log: {}", ex.getMessage());
+            return null;
         }
+    }
 
-        if (commits != null) {
-            for (RevCommit commit : commits) {
-                Matcher matcher = pattern.matcher(commit.getFullMessage());
-                while (matcher.find()) {
-                    String ticketKey = matcher.group(1);
-                    if (ticketMap.containsKey(ticketKey)) {
-                        JiraTicket ticket = ticketMap.get(ticketKey);
-                        if (ticket.getFixCommitHash() == null) {
-                            ticket.setFixCommitHash(commit.getName());
-                            ticket.setResolutionDate(LocalDateTime.ofInstant(commit.getAuthorIdent().getWhenAsInstant(), ZoneId.systemDefault()));
-                        }
-                    }
-                }
-            }
-        } else {
-            log.warn("No commits available from git.log(); attempting to iterate branch refs as a fallback...");
-            try {
-                Collection<Ref> heads = repository.getRefDatabase().getRefsByPrefix("refs/heads/");
-                for (Ref head : heads) {
-                    try {
-                        ObjectId id = repository.resolve(head.getName());
-                        if (id == null) continue;
-                        Iterable<RevCommit> branchCommits = git.log().add(id).call();
-                        for (RevCommit commit : branchCommits) {
-                            Matcher matcher = pattern.matcher(commit.getFullMessage());
-                            while (matcher.find()) {
-                                String ticketKey = matcher.group(1);
-                                if (ticketMap.containsKey(ticketKey)) {
-                                    JiraTicket ticket = ticketMap.get(ticketKey);
-                                    if (ticket.getFixCommitHash() == null) {
-                                        ticket.setFixCommitHash(commit.getName());
-                                        ticket.setResolutionDate(LocalDateTime.ofInstant(commit.getAuthorIdent().getWhenAsInstant(), ZoneId.systemDefault()));
-                                    }
-                                }
-                            }
-                        }
-                    } catch (Exception ex) {
-                        // continue to next head
-                    }
-                }
-            } catch (Exception ex) {
-                log.warn("Fallback branch iteration failed: {}", ex.getMessage());
+    private void processCommits(Iterable<RevCommit> commits, Pattern pattern, Map<String, JiraTicket> ticketMap) {
+        for (RevCommit commit : commits) {
+            applyMatchesForCommit(commit, pattern, ticketMap);
+        }
+    }
+
+    private void applyMatchesForCommit(RevCommit commit, Pattern pattern, Map<String, JiraTicket> ticketMap) {
+        Matcher matcher = pattern.matcher(commit.getFullMessage());
+        while (matcher.find()) {
+            String ticketKey = matcher.group(1);
+            JiraTicket ticket = ticketMap.get(ticketKey);
+            if (ticket != null && ticket.getFixCommitHash() == null) {
+                ticket.setFixCommitHash(commit.getName());
+                ticket.setResolutionDate(LocalDateTime.ofInstant(commit.getAuthorIdent().getWhenAsInstant(), ZoneId.systemDefault()));
             }
         }
-        log.info("Finished scanning git log.");
+    }
+
+    private void processHeadsFallback(Pattern pattern, Map<String, JiraTicket> ticketMap) {
+        try {
+            Collection<Ref> heads = repository.getRefDatabase().getRefsByPrefix("refs/heads/");
+            for (Ref head : heads) {
+                processSingleHead(pattern, ticketMap, head);
+            }
+        } catch (Exception ex) {
+            log.warn("Fallback branch iteration failed: {}", ex.getMessage());
+        }
+    }
+
+    private void processSingleHead(Pattern pattern, Map<String, JiraTicket> ticketMap, Ref head) {
+        try {
+            ObjectId id = repository.resolve(head.getName());
+            if (id == null) return;
+            Iterable<RevCommit> branchCommits = git.log().add(id).call();
+            processCommits(branchCommits, pattern, ticketMap);
+        } catch (Exception ex) {
+            // continue to next head
+        }
     }
     public List<DiffEntry> getDiff(RevCommit commit1, RevCommit commit2) throws IOException {
         try (DiffFormatter diffFormatter = new DiffFormatter(DisabledOutputStream.INSTANCE)) {

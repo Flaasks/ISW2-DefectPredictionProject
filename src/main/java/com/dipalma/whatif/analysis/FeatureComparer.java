@@ -24,6 +24,7 @@ public class FeatureComparer {
     private static final Logger log = LoggerFactory.getLogger(FeatureComparer.class);
     private static final String HEADER_FMT = "%-25s | %-15s | %-15s";
     private static final String ROW_FMT    = "%-25s | %-15s | %-15s%s";
+    private static final String N_AUTH = "NAuth";
 
     /**
      * Analyzes two text files and compares the features of the method found in each.
@@ -38,8 +39,8 @@ public class FeatureComparer {
     Map<String, Number> featuresAfter = extractFeaturesFromFile(refactoredFilePath);
 
     // Per requisito: quando si compara l'originale con il refactor, NR e NAuth devono aumentare di 1
-    featuresAfter.put("NR", featuresAfter.getOrDefault("NR", 1).intValue() + 1);
-    featuresAfter.put("NAuth", featuresAfter.getOrDefault("NAuth", 1).intValue() + 1);
+        featuresAfter.put("NR", featuresAfter.getOrDefault("NR", 1).intValue() + 1);
+        featuresAfter.put(N_AUTH, featuresAfter.getOrDefault(N_AUTH, 1).intValue() + 1);
 
         printComparison(featuresBefore, featuresAfter);
     }
@@ -94,7 +95,7 @@ public class FeatureComparer {
     
     // baseline history values for standalone snippets
     features.put("NR", 1);
-    features.put("NAuth", 1);
+        features.put(N_AUTH, 1);
 
         return features;
     }
@@ -105,7 +106,7 @@ public class FeatureComparer {
             log.info("{}", String.format(HEADER_FMT, "Feature", "Before Refactor", "After Refactor"));
         }
 
-    List<String> featureNames = Arrays.asList("LOC", "CyclomaticComplexity", "ParameterCount", "NumberOfBranches", "NR", "NAuth");
+        List<String> featureNames = Arrays.asList("LOC", "CyclomaticComplexity", "ParameterCount", "NumberOfBranches", "NR", N_AUTH);
 
         for(String feature : featureNames) {
             String beforeValue = before.getOrDefault(feature, 0).toString();

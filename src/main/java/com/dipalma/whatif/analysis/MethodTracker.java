@@ -169,157 +169,188 @@ public class MethodTracker {
             Map<TrackedMethod, CallableDeclaration<?>> methodAstMap,
             RevCommit releaseCommit
     ) throws IOException {
-
         Repository repo = git.getRepository();
         try (RevWalk walk = new RevWalk(repo);
              DiffFormatter fmt = newDiffFormatter(repo)) {
 
             walk.markStart(releaseCommit);
+            Map<String, List<TrackedMethod>> methodsByFile = buildMethodIndex(methodAstMap);
 
-            // build index of methods by filepath for quick lookup
-            Map<String, List<TrackedMethod>> methodsByFile = new HashMap<>();
-            for (TrackedMethod tm : methodAstMap.keySet()) {
-                methodsByFile.computeIfAbsent(tm.filepath(), k -> new ArrayList<>()).add(tm);
-            }
-
-            final int MAX_EDIT_LINES = 200; // cap per edit to avoid huge single-hunk inflation
             for (RevCommit commit : walk) {
                 if (commit.getParentCount() == 0) continue;
-
-                RevCommit parent = walk.parseCommit(commit.getParent(0).getId());
-                List<DiffEntry> diffs = fmt.scan(parent.getTree(), commit.getTree());
-
-                // For this commit, we will aggregate edits per method to ensure NR is counted once
-                Map<TrackedMethod, int[]> perMethodAccumulator = new IdentityHashMap<>();
-
-                // cache else-part counts per file for this commit (old vs new)
-                Map<String, Map<String, Integer>> oldElseByFile = new HashMap<>();
-                Map<String, Map<String, Integer>> newElseByFile = new HashMap<>();
-
-                // dedupe edits per commit/path/begin/end to avoid double counting
-                Set<String> seenEdits = new HashSet<>();
-
-                for (DiffEntry diff : diffs) {
-                    String path = diff.getNewPath() == null ? diff.getOldPath() : diff.getNewPath();
-                    List<TrackedMethod> methods = methodsByFile.get(path);
-                    if (methods == null || methods.isEmpty()) continue;
-
-                    // compute else counts for old and new file versions once per path
-                    if (!oldElseByFile.containsKey(path) && !newElseByFile.containsKey(path)) {
-                        try {
-                            String oldContent = git.getFileContent(path, parent.getName());
-                            String newContent = git.getFileContent(path, commit.getName());
-                            Map<String, Integer> oldMap = new HashMap<>();
-                            Map<String, Integer> newMap = new HashMap<>();
-                            if (oldContent != null && !oldContent.isEmpty()) {
-                                try {
-                                    CompilationUnit oldCu = StaticJavaParser.parse(oldContent);
-                                    oldCu.findAll(CallableDeclaration.class).forEach(cd -> {
-                                        try {
-                                            String sig = cd.getSignature().asString();
-                                            int cnt = countElseParts(cd);
-                                            oldMap.put(sig, cnt);
-                                        } catch (Exception ex) { /* ignore individual failures */ }
-                                    });
-                                } catch (Exception ex) { /* ignore parse errors */ }
-                            }
-                            if (newContent != null && !newContent.isEmpty()) {
-                                try {
-                                    CompilationUnit newCu = StaticJavaParser.parse(newContent);
-                                    newCu.findAll(CallableDeclaration.class).forEach(cd -> {
-                                        try {
-                                            String sig = cd.getSignature().asString();
-                                            int cnt = countElseParts(cd);
-                                            newMap.put(sig, cnt);
-                                        } catch (Exception ex) { /* ignore individual failures */ }
-                                    });
-                                } catch (Exception ex) { /* ignore parse errors */ }
-                            }
-                            oldElseByFile.put(path, oldMap);
-                            newElseByFile.put(path, newMap);
-                        } catch (Exception ex) {
-                            log.debug("Could not compute else counts for {} in commit {}: {}", path, commit.getName(), ex.getMessage());
-                            oldElseByFile.put(path, Collections.emptyMap());
-                            newElseByFile.put(path, Collections.emptyMap());
-                        }
-                    }
-
-                    FileHeader header = fmt.toFileHeader(diff);
-                    List<Edit> edits = header.toEditList();
-
-                    for (Edit edit : edits) {
-                        // dedupe key
-                        String editKey = commit.getName() + ":" + path + ":" + edit.getBeginA() + "," + edit.getEndA() + ":" + edit.getBeginB() + "," + edit.getEndB();
-                        if (seenEdits.contains(editKey)) continue;
-                        seenEdits.add(editKey);
-
-                        // convert to 1-based inclusive range for comparison
-                        int editBegin = edit.getBeginB() + 1;
-                        int editEnd = edit.getEndB(); // end is exclusive in JGit; treat as inclusive upper bound
-
-                        boolean mappedAny = false;
-                        int addedRaw = linesAdded(edit);
-                        int deletedRaw = linesDeleted(edit);
-                        int added = Math.min(addedRaw, MAX_EDIT_LINES);
-                        int deleted = Math.min(deletedRaw, MAX_EDIT_LINES);
-                        int churn = added + deleted;
-
-                        for (TrackedMethod tm : methods) {
-                            if (!tm.hasPosition()) continue;
-                            int mStart = tm.getStartLine();
-                            int mEnd = tm.getEndLine();
-                            if (Math.max(mStart, editBegin) <= Math.min(mEnd, editEnd)) {
-                                // accumulate per-method for this commit
-                                int[] acc = perMethodAccumulator.computeIfAbsent(tm, k -> new int[3]);
-                                acc[0] += added;    // added
-                                acc[1] += deleted;  // deleted
-                                acc[2] += churn;    // total churn for this commit
-                                mappedAny = true;
-                                // continue: an edit may overlap multiple methods
-                            }
-                        }
-
-                        if (!mappedAny) {
-                            log.debug("Edit {}-{} in {} not mapped to any method", editBegin, editEnd, path);
-                        }
-                    }
-                }
-
-                // After processing all diffs/edits for this commit, flush accumulators into methods
-                for (Map.Entry<TrackedMethod, int[]> e : perMethodAccumulator.entrySet()) {
-                    TrackedMethod tm = e.getKey();
-                    int[] acc = e.getValue();
-                    int added = acc[0];
-                    int deleted = acc[1];
-                    int total = acc[2];
-                    // count this commit as one revision touching the method
-                    tm.incrNr();
-                    tm.addAuthor(commit.getAuthorIdent().getEmailAddress());
-                    tm.addStmtAdded(added);
-                    tm.addStmtDeleted(deleted);
-                    // totalChurn remains sum of added+deleted across history
-                    tm.addTotalChurn(total);
-                    // maxChurn should be based on net change (added - deleted) per commit
-                    int net = added - deleted;
-                    tm.updateMaxChurn(net);
-                    // compute elseAdded by comparing old/new method bodies when available
-                    try {
-                        String path = tm.filepath();
-                        String sig = tm.signature();
-                        int oldElse = 0;
-                        int newElse = 0;
-                        Map<String, Integer> oldMap = oldElseByFile.getOrDefault(path, Collections.emptyMap());
-                        Map<String, Integer> newMap = newElseByFile.getOrDefault(path, Collections.emptyMap());
-                        if (oldMap.containsKey(sig)) oldElse = oldMap.get(sig);
-                        if (newMap.containsKey(sig)) newElse = newMap.get(sig);
-                        if (newElse > oldElse) {
-                            tm.addElseAdded(newElse - oldElse);
-                        }
-                    } catch (Exception ex) {
-                        // ignore elseAdded computation errors so history still accumulates
-                    }
-                }
+                processCommitHistory(commit, walk, fmt, methodsByFile);
             }
+        }
+    }
+
+    private Map<String, List<TrackedMethod>> buildMethodIndex(Map<TrackedMethod, CallableDeclaration<?>> methodAstMap) {
+        Map<String, List<TrackedMethod>> methodsByFile = new HashMap<>();
+        for (TrackedMethod tm : methodAstMap.keySet()) {
+            methodsByFile.computeIfAbsent(tm.filepath(), k -> new ArrayList<>()).add(tm);
+        }
+        return methodsByFile;
+    }
+
+    private void processCommitHistory(RevCommit commit, RevWalk walk, DiffFormatter fmt,
+                                      Map<String, List<TrackedMethod>> methodsByFile) throws IOException {
+        RevCommit parent = walk.parseCommit(commit.getParent(0).getId());
+        List<DiffEntry> diffs = fmt.scan(parent.getTree(), commit.getTree());
+
+        CommitContext ctx = new CommitContext(commit, parent);
+        processDiffsForCommit(diffs, fmt, methodsByFile, ctx);
+        flushAccumulatedChanges(ctx);
+    }
+
+    private static class CommitContext {
+        final RevCommit commit;
+        final RevCommit parent;
+        final Map<TrackedMethod, int[]> perMethodAccumulator = new IdentityHashMap<>();
+        final Map<String, Map<String, Integer>> oldElseByFile = new HashMap<>();
+        final Map<String, Map<String, Integer>> newElseByFile = new HashMap<>();
+        final Set<String> seenEdits = new HashSet<>();
+
+        CommitContext(RevCommit commit, RevCommit parent) {
+            this.commit = commit;
+            this.parent = parent;
+        }
+    }
+
+    private void processDiffsForCommit(List<DiffEntry> diffs, DiffFormatter fmt,
+                                       Map<String, List<TrackedMethod>> methodsByFile,
+                                       CommitContext ctx) throws IOException {
+        for (DiffEntry diff : diffs) {
+            String path = diff.getNewPath() == null ? diff.getOldPath() : diff.getNewPath();
+            List<TrackedMethod> methods = methodsByFile.get(path);
+            if (methods == null || methods.isEmpty()) continue;
+
+            ensureElseCountsCached(path, ctx);
+            processEditsInDiff(diff, path, fmt, methods, ctx);
+        }
+    }
+
+    private void ensureElseCountsCached(String path, CommitContext ctx) {
+        if (ctx.oldElseByFile.containsKey(path)) return;
+
+        try {
+            String oldContent = git.getFileContent(path, ctx.parent.getName());
+            String newContent = git.getFileContent(path, ctx.commit.getName());
+
+            ctx.oldElseByFile.put(path, computeElseCountsForContent(oldContent));
+            ctx.newElseByFile.put(path, computeElseCountsForContent(newContent));
+        } catch (Exception ex) {
+            log.debug("Could not compute else counts for {} in commit {}: {}", path, ctx.commit.getName(), ex.getMessage());
+            ctx.oldElseByFile.put(path, Collections.emptyMap());
+            ctx.newElseByFile.put(path, Collections.emptyMap());
+        }
+    }
+
+    private Map<String, Integer> computeElseCountsForContent(String content) {
+        Map<String, Integer> map = new HashMap<>();
+        if (content == null || content.isEmpty()) return map;
+
+        try {
+            CompilationUnit cu = StaticJavaParser.parse(content);
+            cu.findAll(CallableDeclaration.class).forEach(cd -> {
+                try {
+                    map.put(cd.getSignature().asString(), countElseParts(cd));
+                } catch (Exception ex) { /* ignore individual failures */ }
+            });
+        } catch (Exception ex) { /* ignore parse errors */ }
+        return map;
+    }
+
+    private void processEditsInDiff(DiffEntry diff, String path, DiffFormatter fmt,
+                                    List<TrackedMethod> methods, CommitContext ctx) throws IOException {
+        FileHeader header = fmt.toFileHeader(diff);
+        for (Edit edit : header.toEditList()) {
+            String editKey = buildEditKey(path, edit, ctx.commit);
+            if (ctx.seenEdits.contains(editKey)) continue;
+            ctx.seenEdits.add(editKey);
+
+            processSingleEdit(edit, methods, ctx);
+        }
+    }
+
+    private String buildEditKey(String path, Edit edit, RevCommit commit) {
+        return commit.getName() + ":" + path + ":" +
+                edit.getBeginA() + "," + edit.getEndA() + ":" +
+                edit.getBeginB() + "," + edit.getEndB();
+    }
+
+    private void processSingleEdit(Edit edit, List<TrackedMethod> methods, CommitContext ctx) {
+        final int MAX_EDIT_LINES = 200;
+        int editBegin = edit.getBeginB() + 1;
+        int editEnd = edit.getEndB();
+
+        int added = Math.min(linesAdded(edit), MAX_EDIT_LINES);
+        int deleted = Math.min(linesDeleted(edit), MAX_EDIT_LINES);
+        int churn = added + deleted;
+
+        mapEditToMethods(edit, editBegin, editEnd, added, deleted, churn, methods, ctx);
+    }
+
+    private void mapEditToMethods(Edit edit, int editBegin, int editEnd,
+                                   int added, int deleted, int churn,
+                                   List<TrackedMethod> methods, CommitContext ctx) {
+        boolean mappedAny = false;
+        for (TrackedMethod tm : methods) {
+            if (editOverlapsMethod(tm, editBegin, editEnd)) {
+                accumulateEditStats(tm, added, deleted, churn, ctx);
+                mappedAny = true;
+            }
+        }
+
+        if (!mappedAny) {
+            log.debug("Edit {}-{} not mapped to any method", editBegin, editEnd);
+        }
+    }
+
+    private boolean editOverlapsMethod(TrackedMethod tm, int editBegin, int editEnd) {
+        if (!tm.hasPosition()) return false;
+        return Math.max(tm.getStartLine(), editBegin) <= Math.min(tm.getEndLine(), editEnd);
+    }
+
+    private void accumulateEditStats(TrackedMethod tm, int added, int deleted, int churn, CommitContext ctx) {
+        int[] acc = ctx.perMethodAccumulator.computeIfAbsent(tm, k -> new int[3]);
+        acc[0] += added;
+        acc[1] += deleted;
+        acc[2] += churn;
+    }
+
+    private void flushAccumulatedChanges(CommitContext ctx) {
+        for (Map.Entry<TrackedMethod, int[]> e : ctx.perMethodAccumulator.entrySet()) {
+            updateMethodWithCommitData(e.getKey(), e.getValue(), ctx);
+        }
+    }
+
+    private void updateMethodWithCommitData(TrackedMethod tm, int[] acc, CommitContext ctx) {
+        int added = acc[0];
+        int deleted = acc[1];
+        int total = acc[2];
+
+        tm.incrNr();
+        tm.addAuthor(ctx.commit.getAuthorIdent().getEmailAddress());
+        tm.addStmtAdded(added);
+        tm.addStmtDeleted(deleted);
+        tm.addTotalChurn(total);
+        tm.updateMaxChurn(added - deleted);
+
+        updateElseAddedForMethod(tm, ctx);
+    }
+
+    private void updateElseAddedForMethod(TrackedMethod tm, CommitContext ctx) {
+        try {
+            String path = tm.filepath();
+            String sig = tm.signature();
+
+            int oldElse = ctx.oldElseByFile.getOrDefault(path, Collections.emptyMap()).getOrDefault(sig, 0);
+            int newElse = ctx.newElseByFile.getOrDefault(path, Collections.emptyMap()).getOrDefault(sig, 0);
+
+            if (newElse > oldElse) {
+                tm.addElseAdded(newElse - oldElse);
+            }
+        } catch (Exception ex) {
+            // ignore elseAdded computation errors so history still accumulates
         }
     }
 

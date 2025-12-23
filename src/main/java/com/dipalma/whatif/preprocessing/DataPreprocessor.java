@@ -79,7 +79,7 @@ public class DataPreprocessor {
     private Instances removeIdentifierColumns(Instances data) throws Exception {
         // Remove common identifier columns by name if present (Project, MethodName, Release)
         List<Integer> toRemove = new ArrayList<>();
-        for (String id : new String[]{"Project", "MethodName", "Release"}) {
+        for (String id : new String[]{"Project", "MethodName", "RELEASE_ATTR"}) {
             var attr = data.attribute(id);
             if (attr != null) toRemove.add(attr.index());
         }
