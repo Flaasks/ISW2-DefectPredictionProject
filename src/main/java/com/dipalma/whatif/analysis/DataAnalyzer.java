@@ -50,7 +50,7 @@ public class DataAnalyzer {
             loadProcessedData();
         }
 
-        log.info("--- Step 4: Calculating Feature Correlation with Bugginess ---");
+        log.info("--- Calculating Feature Correlation with Bugginess ---");
         AttributeSelection selector = new AttributeSelection();
         InfoGainAttributeEval evaluator = new InfoGainAttributeEval();
         Ranker search = new Ranker();
@@ -64,7 +64,6 @@ public class DataAnalyzer {
 
         int rank = 1;
         for (double[] rankedAttribute : rankedAttributes) {
-            // Weka returns an array where [0] is the attribute index and [1] is its score.
             int index = (int) rankedAttribute[0];
             double score = rankedAttribute[1];
             if (log.isDebugEnabled()) {
@@ -75,8 +74,8 @@ public class DataAnalyzer {
         }
 
 
-        log.info("--- Step 5: Identifying Top Actionable Feature (AFeature) ---");
-    // Exclude LOC from actionable features for automatic selection; replace Duplication with NumberOfBranches
+        log.info("--- Identifying Top Actionable Feature (AFeature) ---");
+    // Exclude LOC from actionable features for automatic selection
     List<String> actionableFeatures = Arrays.asList("CyclomaticComplexity", "ParameterCount", "NumberOfBranches", "elseAdded");
         String aFeature = "";
         double highestScore = -1.0;
@@ -98,13 +97,12 @@ public class DataAnalyzer {
         // store selected actionable feature for external callers
         this.selectedFeatureName = aFeature;
 
-        log.info("--- Step 6: Identifying Target Method (AFMethod) ---");
+        log.info("--- Identifying Target Method (AFMethod) ---");
         findHighImpactMethod(aFeature);
     }
 
     /**
      * Return the actionable feature name selected by the last call to findActionableFeatureAndMethod().
-     * Returns empty string if none was selected.
      */
     public String getSelectedFeatureName() {
         return this.selectedFeatureName;
@@ -131,7 +129,6 @@ public class DataAnalyzer {
             CSVRecord afMethod = afMethodOpt.get();
             // store selected method name for external callers
             this.selectedMethodName = afMethod.get("MethodName");
-            log.info("Identified AFMethod (buggy method in last release with highest {}):", aFeature);
             if (log.isInfoEnabled()) {
                 Object methodName   = afMethod.get("MethodName");
                 Object featureValue = afMethod.get(aFeature);
@@ -146,7 +143,6 @@ public class DataAnalyzer {
 
     /**
      * Return the MethodName selected by the last call to findActionableFeatureAndMethod().
-     * Returns empty string if none was selected.
      */
     public String getSelectedMethodName() {
         return this.selectedMethodName;

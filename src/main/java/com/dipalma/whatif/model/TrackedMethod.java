@@ -47,10 +47,6 @@ public final class TrackedMethod {
     public int getStmtAdded() { return this.stmtAdded; }
     public int getStmtDeleted() { return this.stmtDeleted; }
     public void addTotalChurn(int n) { this.totalChurn += Math.abs(n); }
-    /**
-     * Update maxChurn using the net change (added - deleted) for a single commit.
-     * This records the maximum net churn observed across commits.
-     */
     public void updateMaxChurn(int netChange) { this.maxChurn = Math.max(this.maxChurn, netChange); }
     public int getMaxChurn() { return this.maxChurn; }
     public int getTotalChurn() { return this.totalChurn; }

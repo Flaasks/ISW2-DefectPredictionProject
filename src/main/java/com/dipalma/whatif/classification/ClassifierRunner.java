@@ -36,10 +36,7 @@ public class ClassifierRunner {
         this.csvFilePath = csvFilePath;
     }
 
-    /**
-     * This method is now simplified. It only loads the CSV and ensures the class is nominal.
-     * All column removal is now done in the DataPreprocessor.
-     */
+
     public void loadAndPrepareData() throws Exception {
         CSVLoader loader = new CSVLoader();
         loader.setSource(new File(csvFilePath));
@@ -86,41 +83,22 @@ public class ClassifierRunner {
             log.info("{}", String.format(HEADER_FMT, "Classifier", "AUC", "Precision", "Recall", "Kappa"));
         }
         for (Classifier baseClassifier : classifiers) {
-            Resample resample = new Resample();
-            resample.setBiasToUniformClass(1.0);
-            resample.setNoReplacement(false);
-            resample.setSampleSizePercent(100.0);
+            // Wrap with resample and evaluate via shared utility
+            weka.classifiers.meta.FilteredClassifier fc = com.dipalma.whatif.util.ClassificationUtils.wrapWithResample(baseClassifier, 1);
 
-            FilteredClassifier classifierWithResample = new FilteredClassifier();
-            classifierWithResample.setClassifier(baseClassifier);
-            classifierWithResample.setFilter(resample);
-
-            int numRepeats = 10;
-            double totalAuc = 0;
-            double totalPrecision = 0;
-            double totalKappa = 0;
-            double totalRecall = 0;
-
-            for (int i = 0; i < numRepeats; i++) {
-                Evaluation eval = new Evaluation(this.data);
-                // use repeat-specific seed for deterministic folds
-                resample.setRandomSeed(i);
-                eval.crossValidateModel(classifierWithResample, this.data, 10, new Random(i));
-
-                totalAuc += eval.weightedAreaUnderROC();
-                totalPrecision += eval.weightedPrecision();
-                totalRecall += eval.weightedRecall();
-                totalKappa += eval.kappa();
-            }
+            double[] prec = new double[1];
+            double[] rec  = new double[1];
+            double[] kap  = new double[1];
+            double avgAuc = com.dipalma.whatif.util.ClassificationUtils.evaluate10x10CV(fc, this.data, prec, rec, kap);
 
             if (log.isInfoEnabled()) {
                 log.info("{}", String.format(
                         ROW_FMT,
                         baseClassifier.getClass().getSimpleName(),
-                        totalAuc / numRepeats,
-                        totalPrecision / numRepeats,
-                        totalRecall / numRepeats,
-                        totalKappa / numRepeats
+                        avgAuc,
+                        prec[0],
+                        rec[0],
+                        kap[0]
                 ));
             }
         }
@@ -140,30 +118,12 @@ public class ClassifierRunner {
         double bestScore = Double.NEGATIVE_INFINITY;
 
         for (Classifier c : classifiers) {
-            Resample resample = new Resample();
-            resample.setBiasToUniformClass(1.0);
-            resample.setNoReplacement(false);
-            resample.setSampleSizePercent(100.0);
-            resample.setRandomSeed(1);
-
-            FilteredClassifier fc = new FilteredClassifier();
-            fc.setClassifier(weka.classifiers.AbstractClassifier.makeCopy(c));
-            fc.setFilter(resample);
-
-            int repeats = 10;
-            double totalAuc = 0;
-            for (int i = 0; i < repeats; i++) {
-                // Cross-validate using the FilteredClassifier (which includes resampling)
-                Evaluation eval = new Evaluation(dataset);
-                resample.setRandomSeed(i);
-                eval.crossValidateModel(fc, dataset, 10, new Random(i));
-                totalAuc += eval.weightedAreaUnderROC();
-            }
-            double avgAuc = totalAuc / repeats;
+            FilteredClassifier fc = com.dipalma.whatif.util.ClassificationUtils.wrapWithResample(c, 1);
+            double avgAuc = com.dipalma.whatif.util.ClassificationUtils.evaluate10x10CV(fc, dataset, null, null, null);
             if (avgAuc > bestScore) {
                 bestScore = avgAuc;
                 best = fc;
-                // Train best on full dataset AFTER selection
+                // Train best on full dataset AFTER selection 
                 // but postpone building until after loop to keep best as chosen fc
             }
         }
@@ -225,7 +185,7 @@ public class ClassifierRunner {
         if (data.classIndex() == -1) data.setClassIndex(data.numAttributes() - 1);
 
         weka.core.Attribute classAttr = data.classAttribute();
-        // Determine positive class index (common conventions: "1" or "true"), fallback to second nominal value
+        // Determine positive class index, fallback to second nominal value
         int positiveIndex = classAttr.indexOfValue("1");
         if (positiveIndex == -1) positiveIndex = classAttr.indexOfValue("true");
         if (positiveIndex == -1) positiveIndex = Math.min(1, classAttr.numValues() - 1);
@@ -240,7 +200,6 @@ public class ClassifierRunner {
             int instClassIndex = (int) inst.classValue();
             if (instClassIndex == positiveIndex) actual++;
 
-            // predict: prefer classifyInstance (returns class index for nominal), fallback to distributionForInstance
             int predIndex;
             try {
                 double p = cls.classifyInstance(inst);

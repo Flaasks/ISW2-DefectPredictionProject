@@ -8,10 +8,7 @@ import java.io.IOException;
 import java.io.Reader;
 import java.util.*;
 
-/**
- * Lightweight feature analyzer to compute point-biserial (Pearson with binary class)
- * correlations between numeric features and the binary IsBuggy label.
- */
+
 public class FeatureAnalyzer {
 
     public static Map<String, Double> computeCorrelations(String csvFilePath) throws IOException {
@@ -73,7 +70,7 @@ public class FeatureAnalyzer {
     }
 
     /**
-     * Choose the top actionable feature (from a predefined set) with highest absolute correlation with bugginess.
+     * Choose the top actionable feature with highest absolute correlation with bugginess.
      */
     public static Optional<String> selectTopActionableFeature(String csvFilePath) throws IOException {
         Map<String, Double> corrs = computeCorrelations(csvFilePath);

@@ -16,7 +16,7 @@ public class Main {
     public static void main(String[] args) {
 
 
-        log.info("Starting What-If Analysis Data Generation...");
+        log.info("Starting What-If Analysis Data Generation");
 
         final String BK_PROCESSED = "BOOKKEEPER_processed.csv";
         final String SN_PROCESSED = "SYNCOPE_processed.csv";
@@ -29,8 +29,8 @@ public class Main {
         try {
 
 
-            // --- STAGE 1: DATASET CREATION ---
-            log.info("--- [1/3] CREATING DATASETS ---");
+            // STAGE 1: DATASET CREATION
+            log.info("--- CREATING DATASETS ---");
             if (bkProcessed.exists()) {
                 log.info("Found existing {} - skipping dataset generation.", BK_PROCESSED);
             } else {
@@ -47,8 +47,8 @@ public class Main {
             log.info("--- DATASET CREATION COMPLETE ---");
 
 
-            // --- STAGE 2: DATA PREPROCESSING ---
-            log.info("--- [2/3] PREPROCESSING DATASETS ---");
+            // STAGE 2: DATA PREPROCESSING 
+            log.info("--- PREPROCESSING DATASETS ---");
             if (bkProcessed.exists()) {
                 log.info("Skipping preprocessing for BOOKKEEPER because {} already exists", BK_PROCESSED);
             } else {
@@ -65,17 +65,17 @@ public class Main {
             log.info("--- PREPROCESSING COMPLETE ---");
 
 
-            // --- STAGE 3: CLASSIFIER EVALUATION ---
-            log.info("--- [3/4] EVALUATING CLASSIFIERS ---");
+            // STAGE 3: CLASSIFIER EVALUATION 
+            log.info("--- EVALUATING CLASSIFIERS ---");
             ClassifierRunner bookkeeperRunner = new ClassifierRunner(BK_PROCESSED);
             bookkeeperRunner.runClassification();
 
-            //ClassifierRunner syncopeRunner = new ClassifierRunner(SN_PROCESSED);
+            ClassifierRunner syncopeRunner = new ClassifierRunner(SN_PROCESSED);
             //syncopeRunner.runClassification();
             log.info("--- CLASSIFIER EVALUATION COMPLETE ---");
 
-            // --- STAGE 4: FEATURE & METHOD SELECTION (NEW STEP) ---
-            log.info("--- [4/4] SELECTING FEATURE AND METHOD FOR SIMULATION ---");
+            // STAGE 4: FEATURE & METHOD SELECTION
+            log.info("--- SELECTING FEATURE AND METHOD FOR SIMULATION ---");
             DataAnalyzer bookkeeperAnalyzer = new DataAnalyzer("BOOKKEEPER.csv", BK_PROCESSED);
             bookkeeperAnalyzer.findActionableFeatureAndMethod();
             String bkSelectedMethod = bookkeeperAnalyzer.getSelectedMethodName();
@@ -83,8 +83,6 @@ public class Main {
             log.info("Bookkeeper selected AFMethod: {}", bkSelectedMethod);
             log.info("Bookkeeper selected AFeature: {}", bkSelectedFeature);
 
-            //DataAnalyzer syncopeAnalyzer = new DataAnalyzer("SYNCOPE.csv", SN_PROCESSED);
-            // Also select actionable feature & method for Syncope and store selection
             DataAnalyzer syncopeAnalyzer = new DataAnalyzer("SYNCOPE.csv", SN_PROCESSED);
             syncopeAnalyzer.findActionableFeatureAndMethod();
             String snSelectedMethod = syncopeAnalyzer.getSelectedMethodName();
@@ -94,23 +92,20 @@ public class Main {
             log.info("--- FEATURE & METHOD SELECTION COMPLETE ---");
 
 
-            log.info("--- CLASSIFIER EVALUATION COMPLETE ---");
-
-
             FeatureComparer comparer = new FeatureComparer();
 
             log.info("--- METHOD COMPARING COMPLETE ---");
-            // --- Analysis for BookKeeper ---
+
             String bookkeeperOriginal = "src/main/java/com/dipalma/whatif/Bookkeeper_Original.txt";
             String bookkeeperRefactored = "src/main/java/com/dipalma/whatif/Bookkeeper_Refactored.txt";
             comparer.compareMethods(bookkeeperOriginal, bookkeeperRefactored);
 
-            // --- Analysis for Syncope ---
-            //String syncopeOriginal = "src/main/java/com/dipalma/whatif/Syncope_Original.txt";
-            //String syncopeRefactored = "src/main/java/com/dipalma/whatif/Syncope_Refactored.txt";
+
+            String syncopeOriginal = "src/main/java/com/dipalma/whatif/Syncope_Original.txt";
+            String syncopeRefactored = "src/main/java/com/dipalma/whatif/Syncope_Refactored.txt";
             //comparer.compareMethods(syncopeOriginal, syncopeRefactored);
 
-            // STAGE 3: FINAL WHAT-IF ANALYSIS
+            // STAGE 5: FINAL WHAT-IF ANALYSIS
             log.info("--- What-if Analysis ---");
 
             log.info("--- Analysis for BOOKKEEPER ---");
@@ -119,7 +114,6 @@ public class Main {
 
             log.info("--- Analysis for SYNCOPE ---");
             WhatIfSimulator syncopeSimulator = new WhatIfSimulator(SN_PROCESSED);
-            // Use the actionable feature selected by DataAnalyzer for Syncope
             syncopeSimulator.runFullDatasetSimulation(snSelectedFeature);
 
         } catch (Exception e) {

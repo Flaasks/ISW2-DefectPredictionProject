@@ -4,16 +4,17 @@ import com.dipalma.whatif.classification.ClassifierRunner;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import weka.classifiers.Classifier;
+import com.dipalma.whatif.util.ClassLabelUtils;
 import weka.core.Instances;
 
 import java.io.FileWriter;
 import java.text.DecimalFormat;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-/**
- * New WhatIfSimulator: automated what-if pipeline using DatasetSplitter and ClassifierRunner.
- */
+
 public class WhatIfSimulator {
 
     private final String processedCsvPath;
@@ -21,6 +22,37 @@ public class WhatIfSimulator {
 
     public WhatIfSimulator(String processedCsvPath) {
         this.processedCsvPath = processedCsvPath;
+    }
+
+    // Use shared utility to determine positive class index
+
+    // Calculate prevalence-matched threshold: find threshold t such that predictions on A match Actual_A
+    private double prevalenceMatchedThreshold(Classifier cls, Instances data, int posIdx, int actualPos) throws Exception {
+        int n = data.numInstances();
+        if (actualPos <= 0) return 1.0;
+        if (actualPos >= n) return 0.0;
+        
+        ArrayList<Double> probs = new ArrayList<>(n);
+        for (int i = 0; i < n; i++) {
+            double[] dist = cls.distributionForInstance(data.instance(i));
+            double p = (posIdx >= 0 && posIdx < dist.length) ? dist[posIdx] : 0.0;
+            probs.add(p);
+        }
+        
+        Collections.sort(probs, Collections.reverseOrder());
+        double threshold = probs.get(Math.min(actualPos - 1, probs.size() - 1));
+        return Math.max(0.0, Math.min(1.0, threshold + 1e-9));
+    }
+
+    // Count predicted positives using threshold instead of argmax
+    private int countPredictedWithThreshold(Classifier cls, Instances data, int posIdx, double threshold) throws Exception {
+        int count = 0;
+        for (int i = 0; i < data.numInstances(); i++) {
+            double[] dist = cls.distributionForInstance(data.instance(i));
+            double p = (posIdx >= 0 && posIdx < dist.length) ? dist[posIdx] : 0.0;
+            if (p >= threshold) count++;
+        }
+        return count;
     }
 
     public void runFullDatasetSimulation() throws Exception {
@@ -51,7 +83,7 @@ public class WhatIfSimulator {
         // 2) split datasets in memory and create B set
         DatasetSplitter.InMemorySplit split = DatasetSplitter.splitInMemory(processedCsvPath, topFeature);
 
-    // 3) Train best classifier on the full A dataset (use all processed data per directive)
+    // 3) Train best classifier on the full A dataset (use all processed data)
     ClassifierRunner runner = new ClassifierRunner(processedCsvPath); // path kept for logging only
     Instances trainData = split.all; // train on full processed dataset A
     Classifier cls = runner.trainBestClassifier(trainData);
@@ -59,51 +91,50 @@ public class WhatIfSimulator {
             log.error("trainBestClassifier returned null for {}", processedCsvPath);
             return;
         }
-        // 4) Predict in-memory and compute counts for A_test, B+, B, C
+
+        // 4) Count actual values using existing method
         Map<String, Integer> actual = new LinkedHashMap<>();
+        actual.put("A", runner.actualAndPredicted(cls, split.all)[0]);
+        actual.put("B+", runner.actualAndPredicted(cls, split.bPlus)[0]);
+        actual.put("B", runner.actualAndPredicted(cls, split.b)[0]);
+        actual.put("C", runner.actualAndPredicted(cls, split.c)[0]);
+
+        // 5) Calculate prevalence-matched threshold on A and use it for all predictions
+        int posIdx = ClassLabelUtils.positiveIndex(split.all);
+        int aActual = actual.get("A");
+        double threshold = prevalenceMatchedThreshold(cls, split.all, posIdx, aActual);
+        DecimalFormat tdf = new DecimalFormat("0.0000");
+        log.info("Computed prevalence-matched threshold: {} (to match {} actual positives in A)", tdf.format(threshold), aActual);
+
+        // 6) Count predicted using threshold instead of argmax
         Map<String, Integer> predicted = new LinkedHashMap<>();
+        predicted.put("A", countPredictedWithThreshold(cls, split.all, posIdx, threshold));
+        predicted.put("B+", countPredictedWithThreshold(cls, split.bPlus, posIdx, threshold));
+        predicted.put("B", countPredictedWithThreshold(cls, split.b, posIdx, threshold));
+        predicted.put("C", countPredictedWithThreshold(cls, split.c, posIdx, threshold));
 
-    // Use the entire processed dataset as A (do NOT use only the test split). This ensures "Actual" for A
-    // reflects the whole processed CSV as requested.
-    int[] aCounts = runner.actualAndPredicted(cls, split.all);
-    actual.put("A", aCounts[0]); predicted.put("A", aCounts[1]);
+        // 7) Compute Drop and Reduction
+        int aActualVal = actual.get("A");
+        int bPlusActual = actual.get("B+");
+        int bPred = predicted.get("B");
 
-        int[] bPlusCounts = runner.actualAndPredicted(cls, split.bPlus);
-        actual.put("B+", bPlusCounts[0]); predicted.put("B+", bPlusCounts[1]);
+        // DROP: (Actual_B+ - Predicted_B) / Actual_B+ × 100
+        double dropPct = (bPlusActual > 0) ? ((bPlusActual - bPred) * 100.0 / bPlusActual) : 0.0;
 
-        int[] bCounts = runner.actualAndPredicted(cls, split.b);
-        actual.put("B", bCounts[0]); predicted.put("B", bCounts[1]);
-
-        int[] cCounts = runner.actualAndPredicted(cls, split.c);
-        actual.put("C", cCounts[0]); predicted.put("C", cCounts[1]);
-
-        // 5) Compute Drop and Reduction and write summary
-        int bplusPred = predicted.getOrDefault("B+", 0);
-        int bPred = predicted.getOrDefault("B", 0);
-        int aActual = actual.getOrDefault("A", 0);
-        int drop = Math.max(0, bplusPred - bPred);
-        double dropPct = bplusPred == 0 ? 0.0 : (drop * 100.0) / bplusPred;
-        double rawReductionPct = aActual == 0 ? 0.0 : (drop * 100.0) / aActual;
-        // Reduction represents the share of actual buggy instances in A that would be removed.
-        // Cap at 100% because you cannot reduce more than the total actual buggy instances.
-        double reductionPct = Math.min(100.0, rawReductionPct);
-        if (rawReductionPct > 100.0) {
-            log.warn("Computed raw reduction {}% is >100% (drop={} aActual={}). Capping to 100%.", rawReductionPct, drop, aActual);
-        }
+        // REDUCTION: (Actual_B+ - Predicted_B) / Actual_A × 100
+        double reductionPct = (aActualVal > 0) ? ((bPlusActual - bPred) * 100.0 / aActualVal) : 0.0;
 
         DecimalFormat df = new DecimalFormat("0.##");
-    String prefix = processedCsvPath.replaceAll("_processed\\.csv$", "");
-    String summary = prefix + "_whatif_summary.csv";
+        String prefix = processedCsvPath.replaceAll("_processed\\.csv$", "");
+        String summary = prefix + "_whatif_summary.csv";
         try (FileWriter fw = new FileWriter(summary)) {
             fw.write("Dataset,Actual,Predicted\n");
             for (String k : actual.keySet()) fw.write(k + "," + actual.get(k) + "," + predicted.get(k) + "\n");
-            fw.write("Drop," + drop + "," + df.format(dropPct) + "%\n");
-            // write both raw and capped reduction to help debugging if needed
-            fw.write("ReductionRaw," + drop + "," + df.format(rawReductionPct) + "%\n");
-            fw.write("ReductionCapped," + drop + "," + df.format(reductionPct) + "%\n");
+            fw.write("Drop," + df.format(dropPct) + "%\n");
+            fw.write("Reduction," + df.format(reductionPct) + "%\n");
         }
 
         log.info("What-if analysis complete for {}. Summary written to {}", processedCsvPath, summary);
-        log.info("Drop = {} ({}%), Reduction = {}% (raw={}%)", drop, df.format(dropPct), df.format(reductionPct), df.format(rawReductionPct));
+        log.info("Drop = {}%, Reduction = {}%", df.format(dropPct), df.format(reductionPct));
     }
 }

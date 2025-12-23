@@ -5,18 +5,14 @@ import com.dipalma.whatif.analysis.FeatureAnalyzer;
 import com.dipalma.whatif.classification.ClassifierRunner;
 
 import org.apache.commons.csv.CSVFormat;
-import org.apache.commons.csv.CSVPrinter;
 
-import java.io.FileWriter;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 
 public class AnalysisRunner {
 
     public static void main(String[] args) throws Exception {
         if (args.length < 1) {
-            System.err.println("Usage: AnalysisRunner <processed-csv> [out-prefix]");
             System.exit(1);
         }
         String processed = args[0];
@@ -24,11 +20,9 @@ public class AnalysisRunner {
 
         var opt = FeatureAnalyzer.selectTopActionableFeature(processed);
         if (opt.isEmpty()) {
-            System.err.println("No actionable feature detected; aborting.");
             System.exit(2);
         }
         String topFeature = opt.get();
-        System.out.println("Selected actionable feature: " + topFeature);
 
         // Split and create B using topFeature
         DatasetSplitter.split(processed, prefix, topFeature);
@@ -60,7 +54,7 @@ public class AnalysisRunner {
             String out = path.replace(".csv", "_pred.csv");
             runner.predictToCsv(cls, path, out);
             // compute counts
-            var parser = new org.apache.commons.csv.CSVParser(new java.io.FileReader(out), CSVFormat.DEFAULT.withFirstRecordAsHeader());
+                    var parser = com.dipalma.whatif.util.CsvUtils.parseWithHeader(new java.io.FileReader(out));
             int act = 0, pred = 0;
             for (var r : parser) {
                 String a = r.get("IsBuggy");
@@ -73,13 +67,6 @@ public class AnalysisRunner {
             predicted.put(name, pred);
         }
 
-        // Write summary CSV
-        String summary = prefix + "_summary.csv";
-        try (FileWriter fw = new FileWriter(summary); CSVPrinter printer = new CSVPrinter(fw, CSVFormat.DEFAULT.withHeader("Dataset", "Actual", "Predicted"))) {
-            for (var k : actual.keySet()) {
-                printer.printRecord(k, actual.get(k), predicted.get(k));
-            }
-        }
-        System.out.println("Analysis complete. Summary written to " + summary);
+
     }
 }

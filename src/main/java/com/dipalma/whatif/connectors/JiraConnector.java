@@ -16,7 +16,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZonedDateTime;
-import java.time.format.DateTimeFormatter; // Import the formatter
+import java.time.format.DateTimeFormatter; 
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -76,7 +76,6 @@ public class JiraConnector {
                 JSONObject fields = issue.getJSONObject("fields");
                 String key = issue.getString("key");
 
-                // *** FIX IS HERE ***
                 // Use the custom formatter to parse the date string
                 String createdString = fields.getString("created");
                 LocalDateTime created = ZonedDateTime.parse(createdString, JIRA_DATE_FORMATTER).toLocalDateTime();

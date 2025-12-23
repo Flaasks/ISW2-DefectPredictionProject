@@ -39,7 +39,6 @@ public class GitConnector {
     private Git git;
     private static final Logger log = LoggerFactory.getLogger(GitConnector.class);
 
-    // ... (constructor and cloneOrOpenRepo methods remain the same)
     public GitConnector(String remoteUrl, String localPath) {
         this.remoteUrl = remoteUrl;
         this.localPath = "temp-repo/" + localPath;

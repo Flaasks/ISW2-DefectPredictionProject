@@ -96,9 +96,7 @@ public class DataPreprocessor {
         return filtered;
     }
 
-    /**
-     * New method to find and replace any NaN or Infinite values.
-     */
+
     private record SanitizeResult(Instances instances, int totalImputed) {}
 
     private SanitizeResult sanitizeData(Instances data) {
@@ -160,24 +158,6 @@ public class DataPreprocessor {
         return loader.getDataSet();
     }
 
-    private Instances removeOutliers(Instances data) {
-        Instances filteredData = new Instances(data);
-        filteredData.delete();
-
-        List<Integer> numericAttrIndices = getNumericAttrIndices(data);
-
-        boolean[] toRemove = new boolean[data.numInstances()];
-        for (int attrIndex : numericAttrIndices) {
-            Bounds b = computeBounds(data, attrIndex);
-            if (b != null) { // std=0 (o NaN) => no outlier for that attribute
-                markOutliersForAttr(data, attrIndex, b, toRemove);
-            }
-        }
-
-        copyNonRemovedInstances(data, filteredData, toRemove);
-        return filteredData;
-    }
-
     private static List<Integer> getNumericAttrIndices(Instances data) {
         List<Integer> indices = new ArrayList<>();
         for (int i = 0; i < data.numAttributes(); i++) {
@@ -202,26 +182,6 @@ public class DataPreprocessor {
         double delta = OUTLIER_STD_MULTIPLIER * std;
         return new Bounds(mean - delta, mean + delta);
     }
-
-    private static void markOutliersForAttr(Instances data, int attrIndex, Bounds b, boolean[] toRemove) {
-        for (int i = 0; i < data.numInstances(); i++) {
-            if (!toRemove[i]) {
-                double v = data.instance(i).value(attrIndex);
-                if (v < b.lower || v > b.upper) {
-                    toRemove[i] = true;
-                }
-            }
-        }
-    }
-
-    private static void copyNonRemovedInstances(Instances data, Instances target, boolean[] toRemove) {
-        for (int i = 0; i < data.numInstances(); i++) {
-            if (!toRemove[i]) {
-                target.add(data.instance(i));
-            }
-        }
-    }
-
 
 
     private Instances removeConstantAttributes(Instances data) throws Exception {

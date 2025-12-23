@@ -89,7 +89,7 @@ public class DatasetGenerator {
                             features.getOrDefault("LOC", 0).toString(),
                             features.getOrDefault("CyclomaticComplexity", 0).toString(),
                             features.getOrDefault("ParameterCount", 0).toString(),
-                            features.getOrDefault("NumberOfBranches", 0).toString(), // Added new feature
+                            features.getOrDefault("NumberOfBranches", 0).toString(), 
                             features.getOrDefault("NR", 0).toString(),
                             features.getOrDefault("NAuth", 0).toString(),
                             features.getOrDefault("stmtAdded", 0).toString(),

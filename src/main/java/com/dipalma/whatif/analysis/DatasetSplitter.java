@@ -36,8 +36,8 @@ public class DatasetSplitter {
      * created from B+ by setting the smell-related columns to 0.
      */
     public static void split(String inputCsv, String outPrefix, String actionableFeature) throws IOException {
-        try (Reader in = new FileReader(inputCsv);
-             CSVParser parser = CSVFormat.DEFAULT.withFirstRecordAsHeader().parse(in)) {
+           try (Reader in = new FileReader(inputCsv);
+               CSVParser parser = com.dipalma.whatif.util.CsvUtils.parseWithHeader(in)) {
 
             List<String> headers = parser.getHeaderNames();
             List<Map<String, String>> rows = new ArrayList<>();
@@ -94,20 +94,17 @@ public class DatasetSplitter {
 
             // Create B by copying B+ and zeroing only the top actionable feature
             List<Map<String, String>> b = new ArrayList<>();
-            int modified = 0;
             for (var row : bPlus) {
                 Map<String, String> copy = new LinkedHashMap<>(row);
                 if (copy.containsKey(topFeature)) {
                     String old = copy.get(topFeature);
                     if (old != null && !old.trim().isEmpty() && !old.trim().equals("0") && !old.trim().equals("0.0")) {
                         copy.put(topFeature, "0");
-                        modified++;
                     }
                 }
                 b.add(copy);
             }
             writeCsv(outPrefix + "_B.csv", headers, b);
-            System.out.println("DatasetSplitter: zeroed feature '" + topFeature + "' in B for " + modified + " rows.");
         }
     }
 
@@ -175,7 +172,8 @@ public class DatasetSplitter {
 
     private static void writeCsv(String path, List<String> headers, List<Map<String, String>> rows) throws IOException {
         try (FileWriter out = new FileWriter(path);
-             CSVPrinter printer = new CSVPrinter(out, CSVFormat.DEFAULT.withHeader(headers.toArray(new String[0])))) {
+             CSVPrinter printer = new CSVPrinter(out, CSVFormat.DEFAULT)) {
+            printer.printRecord(headers);
             for (var r : rows) {
                 List<String> rec = new ArrayList<>();
                 for (String h : headers) rec.add(r.getOrDefault(h, ""));

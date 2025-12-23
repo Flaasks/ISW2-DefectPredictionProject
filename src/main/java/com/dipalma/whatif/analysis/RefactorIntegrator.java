@@ -9,7 +9,6 @@ import java.util.*;
 
 /**
  * Reads original/refactored method files (plain snippets) and computes per-method deltas
- * for a small set of actionable features.
  */
 public class RefactorIntegrator {
 

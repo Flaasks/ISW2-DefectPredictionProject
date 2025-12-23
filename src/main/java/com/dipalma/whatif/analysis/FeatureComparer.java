@@ -100,7 +100,7 @@ public class FeatureComparer {
     }
 
     private void printComparison(Map<String, Number> before, Map<String, Number> after) {
-        log.info("--- Step 9: Feature Comparison Result ---");
+        log.info("--- Feature Comparison Result ---");
         if (log.isInfoEnabled()) {
             log.info("{}", String.format(HEADER_FMT, "Feature", "Before Refactor", "After Refactor"));
         }
@@ -111,7 +111,7 @@ public class FeatureComparer {
             String beforeValue = before.getOrDefault(feature, 0).toString();
             String afterValue = after.getOrDefault(feature, 0).toString();
 
-            String marker = !beforeValue.equals(afterValue) ? " <-- CHANGED" : "";
+            String marker = !beforeValue.equals(afterValue) ? "CHANGED" : "";
             if (log.isInfoEnabled()) {
                 log.info("{}", String.format(ROW_FMT, feature, beforeValue, afterValue, marker));
             }
@@ -125,7 +125,6 @@ public class FeatureComparer {
         try {
             count += callable.findAll(IfStmt.class).size();
             count += callable.findAll(ForStmt.class).size();
-            // enhanced for
             count += callable.findAll(ForEachStmt.class).size();
             count += callable.findAll(WhileStmt.class).size();
             count += callable.findAll(DoStmt.class).size();
@@ -133,7 +132,6 @@ public class FeatureComparer {
             int switchCases = callable.findAll(SwitchStmt.class).stream().mapToInt(sw -> sw.getEntries().size()).sum();
             count += switchCases;
         } catch (Exception e) {
-            // defensive: on any traversal/parsing error, return 0
             return 0;
         }
         return count;

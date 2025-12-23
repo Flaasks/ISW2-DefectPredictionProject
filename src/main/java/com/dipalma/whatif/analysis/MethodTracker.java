@@ -64,8 +64,8 @@ public class MethodTracker {
 
                     TrackedMethod trackedMethod = new TrackedMethod(id, signature, file);
                     // store method positions (1-based) for later mapping of edits
-                    callable.getBegin().ifPresent(b -> trackedMethod.setStartLine(b.line));
-                    callable.getEnd().ifPresent(e -> trackedMethod.setEndLine(e.line));
+                    callable.getBegin().ifPresent(begin -> trackedMethod.setStartLine(begin.line));
+                    callable.getEnd().ifPresent(end -> trackedMethod.setEndLine(end.line));
                     currentMethods.add(trackedMethod);
                     methodAstMap.put(trackedMethod, callable);
                 });
@@ -97,9 +97,6 @@ public class MethodTracker {
         // compute static features; initialize history accumulators
         for (TrackedMethod method : currentMethods) {
             CallableDeclaration<?> callable = methodAstMap.get(method);
-            String fp = methodFingerprint.getOrDefault(method, "");
-            // Duplication feature removed (replaced by NumberOfBranches)
-            // compute static features (LOC, complexity, params)
             calculateStaticFeatures(method, callable);
         }
 
@@ -135,7 +132,6 @@ public class MethodTracker {
         int branches = countDecisionPoints(callable);
         method.addFeature("NumberOfBranches", branches);
         method.addFeature("ParameterCount", callable.getParameters().size());
-        // Duplication already set earlier
     }
 
     private int countDecisionPoints(CallableDeclaration<?> callable) {
@@ -327,8 +323,6 @@ public class MethodTracker {
         }
     }
 
-    // Piccolo contenitore per accumulare i contatori
-    // Old per-commit helpers removed; accumulation performed in accumulateHistoryForRelease
 
     private static DiffFormatter newDiffFormatter(Repository repo) {
         DiffFormatter fmt = new DiffFormatter(DisabledOutputStream.INSTANCE);
@@ -347,25 +341,9 @@ public class MethodTracker {
     }
 
 
-    /** Ritorna true se il diff tocca il file del metodo (gestisce rename/oldPath/newPath). */
-    private static boolean affectsFile(DiffEntry diff, String filepath) {
-        return filepath.equals(diff.getNewPath()) || filepath.equals(diff.getOldPath());
-    }
-
-    /** Overlap semplice tra il range del metodo e il range della edit nella "B side" (post-change). */
-    private static boolean overlapsMethod(int methodStart, int methodEnd, Edit edit) {
-        // JavaParser line numbers are 1-based inclusive. JGit Edit uses 0-based indices
-        // with end exclusive. Convert begin to 1-based inclusive to compare ranges.
-        int changeStart = edit.getBeginB() + 1; // convert 0-based -> 1-based
-        int changeEnd = edit.getEndB();        // end is exclusive in JGit; using as-is maps to inclusive 1-based
-        return Math.max(methodStart, changeStart) <= Math.min(methodEnd, changeEnd);
-    }
-
     /**
      * Accurately calculates all change history features by analyzing git diffs.
      */
-    // Old calculateChangeHistoryFeatures / placeholders removed: history now stored in TrackedMethod
-
     private static String sha256(String s) {
         try {
             MessageDigest md = MessageDigest.getInstance("SHA-256");
