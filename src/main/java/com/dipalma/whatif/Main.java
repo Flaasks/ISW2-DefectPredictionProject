@@ -5,17 +5,17 @@ import com.dipalma.whatif.analysis.FeatureComparer;
 import com.dipalma.whatif.analysis.DataAnalyzer;
 import com.dipalma.whatif.classification.ClassifierRunner;
 import com.dipalma.whatif.preprocessing.DataPreprocessor;
+import com.dipalma.whatif.util.ResultsCache;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import java.util.Optional;
 
 public class Main {
 
     private static final Logger log = LoggerFactory.getLogger(Main.class);
 
     public static void main(String[] args) {
-
-
         log.info("Starting What-If Analysis Data Generation");
 
         final String BK_PROCESSED = "BOOKKEEPER_processed.csv";
@@ -24,11 +24,16 @@ public class Main {
         java.io.File bkProcessed = new java.io.File(BK_PROCESSED);
         java.io.File snProcessed = new java.io.File(SN_PROCESSED);
 
+        // Check if results are already cached
+        Optional<ResultsCache.CachedResults> cachedOpt = ResultsCache.loadResults();
+        if (cachedOpt.isPresent()) {
+            ResultsCache.CachedResults cached = cachedOpt.get();
+            log.info("Found cached results from {}: {}", new java.util.Date(cached.generatedAt), cached);
+            log.info("Skipping expensive computations. Delete {} to force recomputation.", ResultsCache.getCacheFilePath());
+            return;
+        }
 
-        
         try {
-
-
             // STAGE 1: DATASET CREATION
             log.info("--- CREATING DATASETS ---");
             if (bkProcessed.exists()) {
@@ -46,7 +51,6 @@ public class Main {
             }
             log.info("--- DATASET CREATION COMPLETE ---");
 
-
             // STAGE 2: DATA PREPROCESSING 
             log.info("--- PREPROCESSING DATASETS ---");
             if (bkProcessed.exists()) {
@@ -63,7 +67,6 @@ public class Main {
                 syncopeProcessor.processData();
             }
             log.info("--- PREPROCESSING COMPLETE ---");
-
 
             // STAGE 3: CLASSIFIER EVALUATION 
             log.info("--- EVALUATING CLASSIFIERS ---");
@@ -91,7 +94,6 @@ public class Main {
             log.info("Syncope selected AFeature: {}", snSelectedFeature);
             log.info("--- FEATURE & METHOD SELECTION COMPLETE ---");
 
-
             FeatureComparer comparer = new FeatureComparer();
 
             log.info("--- METHOD COMPARING COMPLETE ---");
@@ -99,7 +101,6 @@ public class Main {
             String bookkeeperOriginal = "src/main/java/com/dipalma/whatif/Bookkeeper_Original.txt";
             String bookkeeperRefactored = "src/main/java/com/dipalma/whatif/Bookkeeper_Refactored.txt";
             comparer.compareMethods(bookkeeperOriginal, bookkeeperRefactored);
-
 
             String syncopeOriginal = "src/main/java/com/dipalma/whatif/Syncope_Original.txt";
             String syncopeRefactored = "src/main/java/com/dipalma/whatif/Syncope_Refactored.txt";
@@ -115,6 +116,16 @@ public class Main {
             log.info("--- Analysis for SYNCOPE ---");
             WhatIfSimulator syncopeSimulator = new WhatIfSimulator(SN_PROCESSED);
             syncopeSimulator.runFullDatasetSimulation(snSelectedFeature);
+
+            // STAGE 6: SAVE RESULTS TO CACHE
+            log.info("--- SAVING RESULTS TO CACHE ---");
+            ResultsCache.CachedResults results = new ResultsCache.CachedResults(
+                    bkSelectedMethod, bkSelectedFeature,
+                    snSelectedMethod, snSelectedFeature
+            );
+            ResultsCache.saveResults(results);
+            log.info("Results saved: {}", results);
+            log.info("To reset cache, delete file: {}", ResultsCache.getCacheFilePath());
 
         } catch (Exception e) {
             e.printStackTrace();
