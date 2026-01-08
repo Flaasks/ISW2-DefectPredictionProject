@@ -71,7 +71,7 @@ public class Main {
             bookkeeperRunner.runClassification();
 
             ClassifierRunner syncopeRunner = new ClassifierRunner(SN_PROCESSED);
-            //syncopeRunner.runClassification();
+            syncopeRunner.runClassification();
             log.info("--- CLASSIFIER EVALUATION COMPLETE ---");
 
             // STAGE 4: FEATURE & METHOD SELECTION
@@ -103,7 +103,7 @@ public class Main {
 
             String syncopeOriginal = "src/main/java/com/dipalma/whatif/Syncope_Original.txt";
             String syncopeRefactored = "src/main/java/com/dipalma/whatif/Syncope_Refactored.txt";
-            //comparer.compareMethods(syncopeOriginal, syncopeRefactored);
+            comparer.compareMethods(syncopeOriginal, syncopeRefactored);
 
             // STAGE 5: FINAL WHAT-IF ANALYSIS
             log.info("--- What-if Analysis ---");

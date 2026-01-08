@@ -15,6 +15,9 @@ import java.io.File;
 
 public class DatasetSplitter {
 
+    private DatasetSplitter() {
+    }
+
     /**
      * Split A into train/test (80/20) and create B+, B, C based on the actionable feature:
      * - B+ contains rows from A where actionableFeature > 0
@@ -26,7 +29,9 @@ public class DatasetSplitter {
         Optional<String> af = Optional.empty();
         try {
             af = FeatureAnalyzer.selectTopActionableFeature(inputCsv);
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+            // Autodetection failure is non-fatal; fallback to explicit feature resolution
+        }
         split(inputCsv, outPrefix, af.orElse(null));
     }
 
@@ -137,9 +142,12 @@ public class DatasetSplitter {
 
     private static double parseFeatureValue(Map<String, String> row, String feature) {
         String v = row.getOrDefault(feature, "0");
+        if (v == null) {
+            return 0.0;
+        }
         try {
             return Double.parseDouble(v);
-        } catch (Exception e) {
+        } catch (NumberFormatException nfe) {
             return 0.0;
         }
     }
@@ -165,7 +173,7 @@ public class DatasetSplitter {
     /**
      * Split input CSV in memory and return Instances for train/test and B+/B/C as file paths are optional.
      */
-    public static InMemorySplit splitInMemory(String inputCsv, String actionableFeature) throws Exception {
+    public static InMemorySplit splitInMemory(String inputCsv, String actionableFeature) throws IOException {
         Instances all = loadAndPrepareInstances(inputCsv);
         
         InMemoryTrainTest trainTest = createInMemoryTrainTest(all);
@@ -175,7 +183,7 @@ public class DatasetSplitter {
         return new InMemorySplit(all, trainTest.train, trainTest.test, partitions.bPlus, partitions.b, partitions.c);
     }
 
-    private static Instances loadAndPrepareInstances(String inputCsv) throws Exception {
+    private static Instances loadAndPrepareInstances(String inputCsv) throws IOException {
         CSVLoader loader = new CSVLoader();
         loader.setSource(new File(inputCsv));
         Instances all = loader.getDataSet();
@@ -207,7 +215,7 @@ public class DatasetSplitter {
         return new InMemoryTrainTest(train, test);
     }
 
-    private static String resolveActionableFeature(String inputCsv, String actionableFeature) throws Exception {
+    private static String resolveActionableFeature(String inputCsv, String actionableFeature) {
         if (actionableFeature != null) {
             return actionableFeature;
         }
@@ -215,7 +223,7 @@ public class DatasetSplitter {
         try {
             var opt = FeatureAnalyzer.selectTopActionableFeature(inputCsv);
             return opt.orElse(null);
-        } catch (Exception e) {
+        } catch (IOException ioe) {
             return null;
         }
     }
