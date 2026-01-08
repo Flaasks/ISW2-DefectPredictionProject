@@ -5,6 +5,7 @@ import com.dipalma.whatif.analysis.FeatureAnalyzer;
 import com.dipalma.whatif.classification.ClassifierRunner;
 
 
+import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -35,7 +36,7 @@ public class AnalysisRunner {
         processDatasets(cls, datasets, runner, actual, predicted);
     }
 
-    private static String selectActionableFeature(String processed) throws Exception {
+    private static String selectActionableFeature(String processed) throws IOException {
         var opt = FeatureAnalyzer.selectTopActionableFeature(processed);
         if (opt.isEmpty()) {
             System.exit(2);
@@ -92,7 +93,7 @@ public class AnalysisRunner {
         }
     }
 
-    private static CountResult countPredictions(String csvPath) throws Exception {
+    private static CountResult countPredictions(String csvPath) throws IOException {
         int act = 0;
         int pred = 0;
         

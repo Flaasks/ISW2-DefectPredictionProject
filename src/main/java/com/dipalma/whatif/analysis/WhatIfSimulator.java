@@ -41,7 +41,7 @@ public class WhatIfSimulator {
         
         Collections.sort(probs, Collections.reverseOrder());
         double threshold = probs.get(Math.min(actualPos - 1, probs.size() - 1));
-        return Math.max(0.0, Math.min(1.0, threshold + 1e-9));
+        return Math.clamp(threshold + 1e-9, 0.0, 1.0);
     }
 
     // Count predicted positives using threshold instead of argmax
@@ -103,8 +103,10 @@ public class WhatIfSimulator {
         int posIdx = ClassLabelUtils.positiveIndex(split.all);
         int aActual = actual.get("A");
         double threshold = prevalenceMatchedThreshold(cls, split.all, posIdx, aActual);
-        DecimalFormat tdf = new DecimalFormat("0.0000");
-        log.info("Computed prevalence-matched threshold: {} (to match {} actual positives in A)", tdf.format(threshold), aActual);
+        if (log.isInfoEnabled()) {
+            DecimalFormat tdf = new DecimalFormat("0.0000");
+            log.info("Computed prevalence-matched threshold: {} (to match {} actual positives in A)", tdf.format(threshold), aActual);
+        }
 
         // 6) Count predicted using threshold instead of argmax
         Map<String, Integer> predicted = new LinkedHashMap<>();
@@ -129,12 +131,16 @@ public class WhatIfSimulator {
         String summary = prefix + "_whatif_summary.csv";
         try (FileWriter fw = new FileWriter(summary)) {
             fw.write("Dataset,Actual,Predicted\n");
-            for (String k : actual.keySet()) fw.write(k + "," + actual.get(k) + "," + predicted.get(k) + "\n");
+            for (var entry : actual.entrySet()) {
+                fw.write(entry.getKey() + "," + entry.getValue() + "," + predicted.get(entry.getKey()) + "\n");
+            }
             fw.write("Drop," + df.format(dropPct) + "%\n");
             fw.write("Reduction," + df.format(reductionPct) + "%\n");
         }
 
-        log.info("What-if analysis complete for {}. Summary written to {}", processedCsvPath, summary);
-        log.info("Drop = {}%, Reduction = {}%", df.format(dropPct), df.format(reductionPct));
+        if (log.isInfoEnabled()) {
+            log.info("What-if analysis complete for {}. Summary written to {}", processedCsvPath, summary);
+            log.info("Drop = {}%, Reduction = {}%", df.format(dropPct), df.format(reductionPct));
+        }
     }
 }

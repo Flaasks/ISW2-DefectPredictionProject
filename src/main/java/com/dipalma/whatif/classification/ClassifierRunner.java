@@ -140,16 +140,16 @@ public class ClassifierRunner {
     public void predictToCsv(Classifier cls, String inputCsv, String outCsv) throws Exception {
         CSVLoader loader = new CSVLoader();
         loader.setSource(new java.io.File(inputCsv));
-        Instances data = loader.getDataSet();
-        data.setClassIndex(data.numAttributes() - 1);
+        Instances inputData = loader.getDataSet();
+        inputData.setClassIndex(inputData.numAttributes() - 1);
 
         // Validate attribute headers if we have a recorded training header
         if (lastTrainingHeader != null) {
-            if (lastTrainingHeader.size() != data.numAttributes()) {
+            if (lastTrainingHeader.size() != inputData.numAttributes()) {
                 throw new IllegalArgumentException("Input CSV does not match training attributes (different attribute count). Use the same processed CSV used for training.");
             }
-            for (int i = 0; i < data.numAttributes(); i++) {
-                if (!lastTrainingHeader.get(i).equals(data.attribute(i).name())) {
+            for (int i = 0; i < inputData.numAttributes(); i++) {
+                if (!lastTrainingHeader.get(i).equals(inputData.attribute(i).name())) {
                     throw new IllegalArgumentException("Input CSV attribute names/order differ from training dataset. Ensure you pass the same processed CSV or reorder attributes.");
                 }
             }
@@ -159,15 +159,15 @@ public class ClassifierRunner {
              CSVPrinter printer = new CSVPrinter(fw, CSVFormat.DEFAULT)) {
             // header
             List<String> header = new ArrayList<>();
-            for (int i = 0; i < data.numAttributes(); i++) header.add(data.attribute(i).name());
+            for (int i = 0; i < inputData.numAttributes(); i++) header.add(inputData.attribute(i).name());
             header.add("PredictedIsBuggy");
             printer.printRecord(header);
 
-            for (int i = 0; i < data.numInstances(); i++) {
-                double pred = cls.classifyInstance(data.instance(i));
+            for (int i = 0; i < inputData.numInstances(); i++) {
+                double pred = cls.classifyInstance(inputData.instance(i));
                 List<String> rec = new ArrayList<>();
-                for (int a = 0; a < data.numAttributes(); a++) rec.add(data.instance(i).toString(a));
-                rec.add(data.classAttribute().value((int) pred));
+                for (int a = 0; a < inputData.numAttributes(); a++) rec.add(inputData.instance(i).toString(a));
+                rec.add(inputData.classAttribute().value((int) pred));
                 printer.printRecord(rec);
             }
         }
