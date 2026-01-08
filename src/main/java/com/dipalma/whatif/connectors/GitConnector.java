@@ -243,7 +243,7 @@ public class GitConnector {
         return releaseCommits;
     }
 
-    public void findAndSetFixCommits(List<JiraTicket> tickets) throws GitAPIException, IOException {
+    public void findAndSetFixCommits(List<JiraTicket> tickets) {
         log.info("Scanning git log to link commits to JIRA tickets...");
 
         Pattern pattern = Pattern.compile("([A-Z][A-Z0-9]+-\\d+)");

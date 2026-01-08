@@ -14,7 +14,7 @@ public final class ClassLabelUtils {
         int idx = classAttr.indexOfValue("yes");
         if (idx == -1) idx = classAttr.indexOfValue("1");
         if (idx == -1) idx = classAttr.indexOfValue("true");
-        if (idx == -1) idx = Math.clamp(classAttr.numValues() - 1, 0, 1);
+        if (idx == -1) idx = Math.clamp((long) classAttr.numValues() - 1, 0, 1);
         return idx;
     }
 }
