@@ -63,15 +63,6 @@ public class RefactorIntegrator {
     }
 
     private static int computeCyclomatic(MethodDeclaration m) {
-        final int[] c = {1};
-        m.walk(node -> {
-            if (node instanceof com.github.javaparser.ast.stmt.IfStmt || node instanceof com.github.javaparser.ast.stmt.ForStmt ||
-                    node instanceof com.github.javaparser.ast.stmt.WhileStmt || node instanceof com.github.javaparser.ast.stmt.DoStmt ||
-                    node instanceof com.github.javaparser.ast.stmt.SwitchEntry || node instanceof com.github.javaparser.ast.stmt.CatchClause ||
-                    node instanceof com.github.javaparser.ast.expr.ConditionalExpr) {
-                c[0]++;
-            }
-        });
-        return c[0];
+        return com.dipalma.whatif.util.ComplexityUtils.computeCyclomatic(m);
     }
 }

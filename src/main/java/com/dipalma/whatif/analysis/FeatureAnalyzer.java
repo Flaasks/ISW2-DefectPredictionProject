@@ -108,7 +108,9 @@ public class FeatureAnalyzer {
         int n = x.length;
         double meanX = Arrays.stream(x).average().orElse(0);
         double meanY = Arrays.stream(y).average().orElse(0);
-        double num = 0, sx = 0, sy = 0;
+        double num = 0; 
+        double sx = 0; 
+        double sy = 0;
         for (int i = 0; i < n; i++) {
             double dx = x[i] - meanX;
             double dy = y[i] - meanY;

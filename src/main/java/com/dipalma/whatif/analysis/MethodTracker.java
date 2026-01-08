@@ -135,22 +135,7 @@ public class MethodTracker {
     }
 
     private int countDecisionPoints(CallableDeclaration<?> callable) {
-        int count = 0;
-        try {
-            count += callable.findAll(IfStmt.class).size();
-            count += callable.findAll(ForStmt.class).size();
-            count += callable.findAll(ForEachStmt.class).size();
-            count += callable.findAll(WhileStmt.class).size();
-            count += callable.findAll(DoStmt.class).size();
-            count += callable.findAll(ConditionalExpr.class).size();
-            // count switch entries (cases/default)
-            int switchCases = callable.findAll(SwitchStmt.class).stream().mapToInt(sw -> sw.getEntries().size()).sum();
-            count += switchCases;
-        } catch (Exception e) {
-            // be defensive: if parsing traversal fails, return 0
-            return 0;
-        }
-        return count;
+        return com.dipalma.whatif.util.ComplexityUtils.countDecisionPoints(callable);
     }
 
     private int countElseParts(CallableDeclaration<?> callable) {

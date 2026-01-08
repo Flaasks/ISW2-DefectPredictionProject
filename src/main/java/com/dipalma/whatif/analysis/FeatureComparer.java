@@ -121,20 +121,6 @@ public class FeatureComparer {
 
     // Count decision points inside a callable (if, for, foreach, while, do, ternary, switch cases)
     private int countDecisionPoints(CallableDeclaration<?> callable) {
-        if (callable == null) return 0;
-        int count = 0;
-        try {
-            count += callable.findAll(IfStmt.class).size();
-            count += callable.findAll(ForStmt.class).size();
-            count += callable.findAll(ForEachStmt.class).size();
-            count += callable.findAll(WhileStmt.class).size();
-            count += callable.findAll(DoStmt.class).size();
-            count += callable.findAll(ConditionalExpr.class).size();
-            int switchCases = callable.findAll(SwitchStmt.class).stream().mapToInt(sw -> sw.getEntries().size()).sum();
-            count += switchCases;
-        } catch (Exception e) {
-            return 0;
-        }
-        return count;
+        return com.dipalma.whatif.util.ComplexityUtils.countDecisionPoints(callable);
     }
 }
