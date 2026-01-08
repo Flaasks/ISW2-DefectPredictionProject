@@ -286,10 +286,10 @@ public class MethodTracker {
         int deleted = Math.min(linesDeleted(edit), MAX_EDIT_LINES);
         int churn = added + deleted;
 
-        mapEditToMethods(edit, editBegin, editEnd, added, deleted, churn, methods, ctx);
+        mapEditToMethods(editBegin, editEnd, added, deleted, churn, methods, ctx);
     }
 
-    private void mapEditToMethods(Edit edit, int editBegin, int editEnd,
+    private void mapEditToMethods(int editBegin, int editEnd,
                                    int added, int deleted, int churn,
                                    List<TrackedMethod> methods, CommitContext ctx) {
         boolean mappedAny = false;

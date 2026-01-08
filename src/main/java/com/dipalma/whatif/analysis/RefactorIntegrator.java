@@ -4,6 +4,7 @@ import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.body.MethodDeclaration;
 
 import java.io.File;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.util.*;
 
@@ -11,6 +12,9 @@ import java.util.*;
  * Reads original/refactored method files (plain snippets) and computes per-method deltas
  */
 public class RefactorIntegrator {
+
+    private RefactorIntegrator() {
+    }
 
     public static class FeatureDelta {
         public final int locDelta;
@@ -22,7 +26,7 @@ public class RefactorIntegrator {
         }
     }
 
-    public static Map<String, FeatureDelta> computeDeltas(File originalFile, File refactoredFile) throws Exception {
+    public static Map<String, FeatureDelta> computeDeltas(File originalFile, File refactoredFile) throws IOException {
         String orig = Files.readString(originalFile.toPath());
         String ref = Files.readString(refactoredFile.toPath());
 

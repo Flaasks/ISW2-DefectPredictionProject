@@ -10,6 +10,9 @@ import java.util.*;
 
 public class FeatureAnalyzer {
 
+    private FeatureAnalyzer() {
+    }
+
     public static Map<String, Double> computeCorrelations(String csvFilePath) throws IOException {
         try (Reader in = new FileReader(csvFilePath);
              CSVParser parser = com.dipalma.whatif.util.CsvUtils.parseWithHeader(in)) {
@@ -41,7 +44,7 @@ public class FeatureAnalyzer {
             if (shouldSkipColumn(h)) continue;
             
             double[] arr = tryParseColumnAsNumeric(rows, h, n);
-            if (arr != null) {
+            if (arr.length > 0) {
                 numericCols.put(h, arr);
             }
         }
@@ -63,7 +66,7 @@ public class FeatureAnalyzer {
             try {
                 arr[i] = Double.parseDouble(val);
             } catch (Exception e) {
-                return null; // Not all numeric, skip this column
+                return new double[0]; // Not all numeric, skip this column
             }
         }
         
